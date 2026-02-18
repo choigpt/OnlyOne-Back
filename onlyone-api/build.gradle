@@ -1,0 +1,207 @@
+plugins {
+    id 'java'
+    id 'org.springframework.boot' version '3.5.4'
+    id 'io.spring.dependency-management' version '1.1.7'
+    id 'jacoco'
+}
+
+group = 'com.example'
+version = '0.0.1-SNAPSHOT'
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+}
+
+repositories {
+    mavenCentral()
+}
+
+ext {
+    set('springCloudVersion', "2025.0.0")
+    set('testcontainersVersion', '1.21.4')
+}
+
+dependencyManagement {
+    imports {
+        mavenBom "org.springframework.cloud:spring-cloud-dependencies:${springCloudVersion}"
+        mavenBom "org.testcontainers:testcontainers-bom:${testcontainersVersion}"
+    }
+}
+
+ext {
+    set('querydslVersion', '5.1.0')
+}
+
+dependencies {
+    // 공통 모듈
+    implementation project(':onlyone-common')
+
+    // 도메인 모듈
+    implementation project(':onlyone-domain-user')
+    implementation project(':onlyone-domain-notification')
+    implementation project(':onlyone-domain-club')
+    implementation project(':onlyone-domain-chat')
+    implementation project(':onlyone-domain-feed')
+    implementation project(':onlyone-domain-finance')
+    implementation project(':onlyone-domain-schedule')
+    implementation project(':onlyone-domain-interest')
+    implementation project(':onlyone-domain-search')
+    implementation project(':onlyone-domain-image')
+
+    // Spring Boot Starters
+    implementation 'org.springframework.boot:spring-boot-starter-web'
+    implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
+    implementation 'org.springframework.boot:spring-boot-starter-data-redis'
+    implementation 'org.springframework.boot:spring-boot-starter-data-elasticsearch'
+    implementation 'org.springframework.boot:spring-boot-starter-websocket'
+    implementation 'org.springframework.boot:spring-boot-starter-logging'
+    implementation 'org.springframework.boot:spring-boot-starter-actuator'
+    implementation 'org.springframework.boot:spring-boot-starter-aop'
+
+    // Security (기존 infra에서 이관)
+    implementation 'org.springframework.boot:spring-boot-starter-security'
+    implementation 'org.springframework.boot:spring-boot-starter-oauth2-client'
+    implementation 'io.jsonwebtoken:jjwt-api:0.12.4'
+    runtimeOnly 'io.jsonwebtoken:jjwt-impl:0.12.4'
+    runtimeOnly 'io.jsonwebtoken:jjwt-jackson:0.12.4'
+    implementation 'com.auth0:java-jwt:3.14.0'
+
+    // QueryDSL
+    implementation "com.querydsl:querydsl-jpa:${querydslVersion}:jakarta"
+    annotationProcessor "com.querydsl:querydsl-apt:${querydslVersion}:jakarta"
+    annotationProcessor 'jakarta.annotation:jakarta.annotation-api:3.0.0'
+    annotationProcessor 'jakarta.persistence:jakarta.persistence-api:3.2.0'
+
+    // Redis pool
+    implementation 'org.apache.commons:commons-pool2:2.12.0'
+
+    // AWS S3
+    implementation 'software.amazon.awssdk:s3:2.32.11'
+
+    // Firebase FCM
+    implementation 'com.google.firebase:firebase-admin:9.5.0'
+
+    // OpenAPI
+    implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:2.7.0'
+
+    // Database
+    runtimeOnly 'com.mysql:mysql-connector-j'
+    runtimeOnly 'com.h2database:h2'
+
+    // Monitoring
+    runtimeOnly 'io.micrometer:micrometer-registry-prometheus'
+
+    // Utilities
+    implementation 'com.github.gavlyukovskiy:p6spy-spring-boot-starter:1.9.0'
+
+    // DevTools
+    developmentOnly 'org.springframework.boot:spring-boot-devtools'
+
+    // Lombok
+    compileOnly 'org.projectlombok:lombok'
+    annotationProcessor 'org.projectlombok:lombok'
+    testCompileOnly 'org.projectlombok:lombok'
+    testAnnotationProcessor 'org.projectlombok:lombok'
+
+    // Test
+    testImplementation 'org.springframework.boot:spring-boot-starter-test'
+    testImplementation 'org.springframework.security:spring-security-test'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+    testImplementation 'com.h2database:h2'
+    testImplementation 'org.testcontainers:testcontainers'
+    testImplementation 'org.testcontainers:junit-jupiter'
+    testImplementation 'org.testcontainers:kafka'
+    testImplementation 'org.testcontainers:elasticsearch'
+    testImplementation 'org.springframework.kafka:spring-kafka-test'
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.compilerArgs += ["--enable-preview"]
+}
+
+tasks.named('test') {
+    useJUnitPlatform()
+    finalizedBy jacocoTestReport
+    jvmArgs += "--enable-preview"
+}
+
+tasks.named("bootRun") {
+    jvmArgs("--enable-preview", "-Xmx2g", "-Xss512k")
+
+    // Load .env file from root project directory
+    def envFile = rootProject.file('.env')
+    if (envFile.exists()) {
+        envFile.readLines().each { line ->
+            def trimmed = line.trim()
+            if (trimmed && !trimmed.startsWith('#')) {
+                def parts = trimmed.split('=', 2)
+                if (parts.length == 2) {
+                    environment parts[0].trim(), parts[1].trim()
+                }
+            }
+        }
+    }
+}
+
+jacoco {
+    toolVersion = "0.8.13"
+}
+
+test {
+    doFirst {
+        jvmArgs "-javaagent:${configurations.testRuntimeClasspath.find { it.name.contains('mockito-core') }.absolutePath}"
+    }
+}
+
+jacocoTestReport {
+    dependsOn test
+    reports {
+        html.required = true
+        xml.required = true
+        csv.required = false
+        html.outputLocation = layout.buildDirectory.dir('jacocoHtml')
+        xml.outputLocation = layout.buildDirectory.file('jacoco/jacoco.xml')
+    }
+
+    afterEvaluate {
+        classDirectories.setFrom(files(classDirectories.files.collect {
+            fileTree(dir: it, exclude: [
+                    '**/config/**',
+                    '**/configuration/**',
+                    '**/dto/**',
+                    '**/entity/**',
+                    '**/domain/**/entity/**',
+                    '**/*Application*',
+                    '**/exception/**',
+                    '**/global/exception/**',
+                    '**/util/**',
+                    '**/common/**',
+            ])
+        }))
+    }
+}
+
+jacocoTestCoverageVerification {
+    dependsOn jacocoTestReport
+    violationRules {
+        rule {
+            limit {
+                minimum = 0.80
+            }
+        }
+
+        rule {
+            enabled = true
+            element = 'CLASS'
+            includes = ['com.example.onlyone.domain.*.service.*']
+
+            limit {
+                counter = 'LINE'
+                value = 'COVEREDRATIO'
+                minimum = 0.75
+            }
+        }
+    }
+}

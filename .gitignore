@@ -40,8 +40,15 @@ out/
 ### VS Code ###
 .vscode/
 
+### Environment & Secrets ###
+.env
+*.env.local
+*.env.production
+
+### Firebase ###
 src/main/resources/firebase/service-account.json
 
+### Application configs (sensitive) ###
 application.yml
 src/main/resources/application.yml
 src/main/resources/application-prod.yml
@@ -62,15 +69,10 @@ ngrinder-controller
 ### monitoring ###
 grafana-data
 prometheus-data
-docker-compose.yml
 prometheus.yml
-<<<<<<< HEAD
 datasource.yml
 k6/
-
 smoke_dummy.js
-
-=======
 influxdb-data
 k6-test
 redis-data/dump.rdb
@@ -78,5 +80,15 @@ redis-data/dump.rdb
 src/main/resources/application-stage.yml
 k6/k6_result.json
 k6/settlement_test.js
-ngrinder-controller
->>>>>>> 1191fa0d327320b6ba956954cf597dcb07feda36
+
+### Logs ###
+logs/
+*.log
+boot.log
+**/logs/
+**/*.log
+
+### Backup ###
+src-backup/
+build.gradle.backup
+nul

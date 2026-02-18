@@ -1,0 +1,92 @@
+# =============================================================
+# 운영 환경 설정 (profile: prod)
+# 안정성 우선: 보수적인 풀 사이즈, DDL 비활성화, 최소 로깅
+# 모든 민감 값은 환경변수로 주입
+# =============================================================
+
+# --- 데이터소스 (보수적 커넥션 풀) ---
+spring:
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: ${DB_URL}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+    hikari:
+      maximum-pool-size: 50
+      minimum-idle: 10
+      connection-timeout: 30000
+      idle-timeout: 600000
+      max-lifetime: 1800000
+
+  # JPA: DDL 완전 비활성화, 배치 처리
+  jpa:
+    hibernate:
+      ddl-auto: none             # 운영 DB 스키마 변경 차단
+    properties:
+      hibernate:
+        format_sql: false
+        use_sql_comments: false
+        show_sql: false
+        jdbc:
+          batch_size: 30
+        order_inserts: true
+        order_updates: true
+
+  # Redis
+  data:
+    redis:
+      host: ${REDIS_HOST}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      lettuce:
+        pool:
+          max-active: 30
+          max-idle: 20
+          min-idle: 5
+
+  # Elasticsearch
+  elasticsearch:
+    uris: ${ELASTICSEARCH_URIS}
+    username: ${ELASTICSEARCH_USERNAME:elastic}
+    password: ${ELASTICSEARCH_PASSWORD}
+
+  # 캐시: Redis 기반, TTL 10분
+  cache:
+    type: redis
+    redis:
+      time-to-live: 600000
+
+# --- 로깅: WARN 수준 (노이즈 최소화) ---
+logging:
+  level:
+    root: WARN
+    com.example.onlyone: INFO
+    org.hibernate.SQL: WARN
+    org.springframework.web: WARN
+    org.springframework.security: WARN
+
+server:
+  port: ${SERVER_PORT:8080}
+  tomcat:
+    threads:
+      max: 200
+      min-spare: 10
+
+# --- AWS ---
+aws:
+  s3:
+    region: ${AWS_S3_REGION:ap-northeast-2}
+    bucket: ${AWS_S3_BUCKET}
+  cloudfront:
+    domain: ${AWS_CLOUDFRONT_DOMAIN}
+
+Kakao:
+  redirect:
+    uri: ${KAKAO_REDIRECT_URI}
+
+# --- Rate Limit 활성화 ---
+app:
+  rate-limit:
+    enabled: true
+    requests-per-minute: 60
+    auth-requests-per-30s: 10
