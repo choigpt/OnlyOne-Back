@@ -21,9 +21,9 @@ public class RedisChatPubSubConfig {
             @Qualifier("chatMessageSubscriber") MessageListener chatSubscriber) {
 
         ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
-        executor.setCorePoolSize(128);
-        executor.setMaxPoolSize(400);
-        executor.setQueueCapacity(10000);
+        executor.setCorePoolSize(32);
+        executor.setMaxPoolSize(128);
+        executor.setQueueCapacity(5000);
         executor.setThreadNamePrefix("redis-sub-");
         executor.setRejectedExecutionHandler(new ThreadPoolExecutor.CallerRunsPolicy());
         executor.initialize();

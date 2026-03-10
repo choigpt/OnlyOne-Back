@@ -73,9 +73,9 @@ mkdir -p "$DIAG_DIR"/{threaddumps,heapdumps,gclog,jfr,tcpdump}
 
 # ── JVM 옵션 구성 ──
 JVM_OPTS=(
-    # 메모리
-    -Xms3g -Xmx3g
-    -XX:MaxDirectMemorySize=1g
+    # 메모리 (환경변수로 오버라이드 가능)
+    -Xms${JVM_HEAP:-3g} -Xmx${JVM_HEAP:-3g}
+    -XX:MaxDirectMemorySize=${JVM_DIRECT:-256m}
     -XX:+AlwaysPreTouch
 
     # GC (ZGC Generational)
@@ -103,7 +103,7 @@ JVM_OPTS=(
 
 # 앱 시작
 log_info "앱 시작: $JAR_PATH"
-log_info "JVM: Xms3g Xmx3g ZGC GC-log JFR HeapDump"
+log_info "JVM: Xms${JVM_HEAP:-3g} Xmx${JVM_HEAP:-3g} Direct=${JVM_DIRECT:-256m} ZGC GC-log JFR HeapDump"
 log_info "진단 디렉토리: $DIAG_DIR"
 
 nohup java "${JVM_OPTS[@]}" \

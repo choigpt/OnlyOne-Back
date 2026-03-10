@@ -315,9 +315,9 @@ spring:
     username: ${DB_USERNAME:root}
     password: ${DB_PASSWORD:root}
     hikari:
-      maximum-pool-size: 300
-      minimum-idle: 50
-      connection-timeout: 10000
+      maximum-pool-size: ${HIKARI_WRITE_POOL:80}
+      minimum-idle: ${HIKARI_WRITE_MIN:20}
+      connection-timeout: 5000
       idle-timeout: 300000
       max-lifetime: 600000
       validation-timeout: 3000
@@ -409,7 +409,7 @@ logging:
     org.springframework: warn
     org.apache.kafka: warn
 
-# --- Tomcat (c5.xlarge 고부하 튜닝) ---
+# --- Tomcat (고부하 튜닝) ---
 server:
   port: 8080
   tomcat:
@@ -418,6 +418,10 @@ server:
       min-spare: 25
     max-connections: 20000
     accept-count: 1000
+  compression:
+    enabled: true
+    mime-types: application/json,application/xml,text/html,text/plain,text/event-stream
+    min-response-size: 512
 
 # --- AWS ---
 aws:
@@ -432,6 +436,8 @@ app:
   datasource:
     routing:
       enabled: true
+    read-pool-size: ${HIKARI_READ_POOL:150}
+    read-min-idle: ${HIKARI_READ_MIN:30}
   feed-like-stream:
     enabled: ${FEED_LIKE_STREAM_ENABLED:true}
   kafka:
@@ -448,12 +454,12 @@ app:
       enabled: ${FEED_CACHE_ENABLED:false}
   chat:
     storage: mysql
-    stomp-inbound-core-pool: 128
-    stomp-inbound-max-pool: 256
-    stomp-inbound-queue: 10000
-    stomp-outbound-core-pool: 128
-    stomp-outbound-max-pool: 256
-    stomp-outbound-queue: 8000
+    stomp-inbound-core-pool: 64
+    stomp-inbound-max-pool: 128
+    stomp-inbound-queue: 5000
+    stomp-outbound-core-pool: 64
+    stomp-outbound-max-pool: 128
+    stomp-outbound-queue: 3000
   notification:
     storage: mongodb
     sse-timeout-millis: 300000

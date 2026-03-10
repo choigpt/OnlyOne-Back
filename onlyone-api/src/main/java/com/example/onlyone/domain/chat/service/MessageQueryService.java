@@ -23,8 +23,8 @@ public class MessageQueryService {
     private final ChatMessageStoragePort chatMessageStoragePort;
     private final ChatRoomRepository chatRoomRepository;
 
-    private static final int DEFAULT_PAGE_SIZE = 50;
-    private static final int MAX_PAGE_SIZE = 200;
+    private static final int DEFAULT_PAGE_SIZE = 30;
+    private static final int MAX_PAGE_SIZE = 100;
 
     public ChatRoomMessageResponse getChatRoomMessages(
             Long chatRoomId, Integer size, Long cursorId, LocalDateTime cursorAt) {

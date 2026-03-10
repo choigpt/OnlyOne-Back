@@ -2,14 +2,13 @@ package com.example.onlyone.global.config;
 
 import com.zaxxer.hikari.HikariDataSource;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration;
 import org.springframework.boot.autoconfigure.jdbc.DataSourceProperties;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Primary;
-import org.springframework.context.annotation.Profile;
 import org.springframework.jdbc.datasource.LazyConnectionDataSourceProxy;
 import org.springframework.jdbc.datasource.lookup.AbstractRoutingDataSource;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
@@ -27,6 +26,12 @@ import java.util.Map;
 @Configuration
 @ConditionalOnProperty(name = "app.datasource.routing.enabled", havingValue = "true")
 public class DataSourceRoutingConfig {
+
+    @Value("${app.datasource.read-pool-size:150}")
+    private int readPoolSize;
+
+    @Value("${app.datasource.read-min-idle:30}")
+    private int readMinIdle;
 
     @Bean
     @ConfigurationProperties("spring.datasource")
@@ -54,9 +59,9 @@ public class DataSourceRoutingConfig {
                 .build();
         ds.setPoolName("read-pool");
         ds.setReadOnly(true);
-        // 읽기 풀은 쓰기 풀과 동일 크기 — 고부하 시 조회 타임아웃 방지
-        ds.setMaximumPoolSize(writeDs.getMaximumPoolSize());
-        ds.setMinimumIdle(writeDs.getMinimumIdle());
+        // 읽기 풀은 쓰기보다 크게 — 조회 API가 압도적으로 많음
+        ds.setMaximumPoolSize(readPoolSize);
+        ds.setMinimumIdle(readMinIdle);
         ds.setConnectionTimeout(writeDs.getConnectionTimeout());
         ds.setIdleTimeout(writeDs.getIdleTimeout());
         ds.setMaxLifetime(writeDs.getMaxLifetime());

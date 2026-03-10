@@ -13,6 +13,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.web.socket.config.annotation.EnableWebSocketMessageBroker;
 import org.springframework.web.socket.config.annotation.StompEndpointRegistry;
 import org.springframework.web.socket.config.annotation.WebSocketMessageBrokerConfigurer;
+import org.springframework.web.socket.config.annotation.WebSocketTransportRegistration;
 
 @Configuration
 @EnableWebSocketMessageBroker
@@ -80,6 +81,13 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
         exec.setThreadNamePrefix("stomp-out-");
         exec.initialize();
         return exec;
+    }
+
+    @Override
+    public void configureWebSocketTransport(WebSocketTransportRegistration registration) {
+        registration.setSendBufferSizeLimit(128 * 1024);   // 128KB (기본 512KB)
+        registration.setSendTimeLimit(5 * 1000);            // 5초 (느린 클라이언트 빠른 정리)
+        registration.setMessageSizeLimit(64 * 1024);        // 64KB 메시지 크기 제한
     }
 
     @Override
