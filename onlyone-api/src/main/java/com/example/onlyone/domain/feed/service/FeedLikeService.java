@@ -5,6 +5,8 @@ import com.example.onlyone.domain.feed.repository.FeedRepository;
 import com.example.onlyone.domain.user.service.UserService;
 import com.example.onlyone.domain.club.exception.ClubErrorCode;
 import com.example.onlyone.domain.feed.exception.FeedErrorCode;
+import com.example.onlyone.domain.feed.event.FeedEngagementEvent;
+import com.example.onlyone.domain.feed.event.FeedEngagementEventPublisher;
 import com.example.onlyone.global.exception.CustomException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -31,6 +33,7 @@ public class FeedLikeService implements FeedLikeToggleService {
     private final DefaultRedisScript<List> likeToggleScript;
     private final StringRedisTemplate redis;
     private final Clock clock;
+    private final FeedEngagementEventPublisher engagementPublisher;
 
     private static final Duration EXISTS_CACHE_TTL = Duration.ofMinutes(10);
 
@@ -64,6 +67,7 @@ public class FeedLikeService implements FeedLikeToggleService {
         for (Object o : raw) toggleResult.add(((Number) o).longValue());
 
         boolean liked = toggleResult.get(0) == 1L;
+        engagementPublisher.publish(FeedEngagementEvent.like(feedId, liked ? 1 : -1));
         log.debug("좋아요 토글: feedId={}, userId={}, liked={}", feedId, userId, liked);
         return liked;
     }

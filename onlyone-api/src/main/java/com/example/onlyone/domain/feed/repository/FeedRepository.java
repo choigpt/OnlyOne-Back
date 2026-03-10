@@ -66,4 +66,12 @@ public interface FeedRepository extends JpaRepository<Feed, Long>, FeedRepositor
             "LIMIT :batchSize",
             nativeQuery = true)
     int updatePopularityScoresBatch(@Param("batchSize") int batchSize);
+
+    /** 단건 popularity_score 즉시 갱신 — Kafka Consumer에서 호출 */
+    @Modifying(clearAutomatically = true)
+    @Query(value = "UPDATE feed SET popularity_score = " +
+            "LN(GREATEST(like_count + comment_count * 2, 1)) - (TIMESTAMPDIFF(SECOND, created_at, NOW()) / 43200.0) " +
+            "WHERE feed_id = :feedId AND deleted = false",
+            nativeQuery = true)
+    int updatePopularityScoreById(@Param("feedId") long feedId);
 }

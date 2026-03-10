@@ -3,6 +3,7 @@ package com.example.onlyone.global.filter;
 import com.example.onlyone.domain.user.dto.UserPrincipal;
 import com.example.onlyone.global.exception.ErrorCode;
 import io.jsonwebtoken.Claims;
+import io.jsonwebtoken.JwtParser;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
 import jakarta.annotation.PostConstruct;
@@ -33,7 +34,7 @@ public class JwtTokenParser {
     @Value("${jwt.secret}")
     private String jwtSecret;
 
-    private SecretKey signingKey;
+    private JwtParser jwtParser;
 
     @PostConstruct
     void init() {
@@ -42,7 +43,8 @@ public class JwtTokenParser {
                     "JWT secret must be at least " + MIN_SECRET_LENGTH + " characters (256 bits). "
                             + "Current length: " + (jwtSecret == null ? 0 : jwtSecret.length()));
         }
-        this.signingKey = Keys.hmacShaKeyFor(jwtSecret.getBytes(StandardCharsets.UTF_8));
+        SecretKey signingKey = Keys.hmacShaKeyFor(jwtSecret.getBytes(StandardCharsets.UTF_8));
+        this.jwtParser = Jwts.parser().verifyWith(signingKey).build();
         log.info("JWT token parser initialized (secret length: {} chars)", jwtSecret.length());
     }
 
@@ -53,9 +55,7 @@ public class JwtTokenParser {
      * @throws IllegalArgumentException 필수 클레임이 누락된 경우
      */
     public UserPrincipal parseToken(String token) {
-        Claims claims = Jwts.parser()
-                .verifyWith(signingKey)
-                .build()
+        Claims claims = jwtParser
                 .parseSignedClaims(token)
                 .getPayload();
 

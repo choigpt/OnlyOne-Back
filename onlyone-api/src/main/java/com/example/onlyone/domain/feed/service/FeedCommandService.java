@@ -11,6 +11,8 @@ import com.example.onlyone.domain.club.exception.ClubErrorCode;
 import com.example.onlyone.domain.feed.exception.FeedErrorCode;
 import com.example.onlyone.domain.user.entity.User;
 import com.example.onlyone.domain.user.service.UserService;
+import com.example.onlyone.domain.feed.event.FeedEngagementEvent;
+import com.example.onlyone.domain.feed.event.FeedEngagementEventPublisher;
 import com.example.onlyone.global.exception.CustomException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -31,6 +33,7 @@ public class FeedCommandService {
     private final UserService userService;
     private final UserClubRepository userClubRepository;
     private final FeedCacheService cache;
+    private final FeedEngagementEventPublisher engagementPublisher;
 
     public void createFeed(Long clubId, FeedRequestDto requestDto) {
         Club club = findClubOrThrow(clubId);
@@ -41,6 +44,7 @@ public class FeedCommandService {
         feed.replaceImages(requestDto.feedUrls());
         feedRepository.save(feed);
         cache.invalidateAllFeedCachesForUser(user.getUserId());
+        engagementPublisher.publish(FeedEngagementEvent.feedCreate(feed.getFeedId()));
         log.info("피드 생성: clubId={}, userId={}", clubId, user.getUserId());
     }
 

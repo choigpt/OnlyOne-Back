@@ -12,6 +12,8 @@ import com.example.onlyone.domain.club.exception.ClubErrorCode;
 import com.example.onlyone.domain.feed.exception.FeedErrorCode;
 import com.example.onlyone.domain.user.entity.User;
 import com.example.onlyone.domain.user.service.UserService;
+import com.example.onlyone.domain.feed.event.FeedEngagementEvent;
+import com.example.onlyone.domain.feed.event.FeedEngagementEventPublisher;
 import com.example.onlyone.global.exception.CustomException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -34,6 +36,7 @@ public class FeedCommentService {
     private final UserService userService;
     private final FeedCacheService cache;
     private final ApplicationEventPublisher eventPublisher;
+    private final FeedEngagementEventPublisher engagementPublisher;
 
     @Transactional
     public void createComment(Long clubId, Long feedId, FeedCommentRequestDto requestDto) {
@@ -45,6 +48,7 @@ public class FeedCommentService {
         feedCommentRepository.save(feedComment);
         // comment_count 갱신을 TX 커밋 후 비동기로 처리 (feed row X-lock 제거)
         eventPublisher.publishEvent(new CommentCountEvent(feedId, 1));
+        engagementPublisher.publish(FeedEngagementEvent.comment(feedId, 1));
         cache.invalidateDetail(feedId);
         log.info("댓글 생성: feedId={}, userId={}", feedId, currentUser.getUserId());
     }
@@ -65,6 +69,7 @@ public class FeedCommentService {
 
         feedCommentRepository.delete(feedComment);
         eventPublisher.publishEvent(new CommentCountEvent(feedId, -1));
+        engagementPublisher.publish(FeedEngagementEvent.comment(feedId, -1));
         cache.invalidateDetail(feedId);
         log.info("댓글 삭제: commentId={}, feedId={}, userId={}", commentId, feedId, userId);
     }
