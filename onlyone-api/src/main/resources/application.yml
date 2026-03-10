@@ -315,9 +315,9 @@ spring:
     username: ${DB_USERNAME:root}
     password: ${DB_PASSWORD:root}
     hikari:
-      maximum-pool-size: ${HIKARI_WRITE_POOL:80}
-      minimum-idle: ${HIKARI_WRITE_MIN:20}
-      connection-timeout: 5000
+      maximum-pool-size: ${HIKARI_WRITE_POOL:200}
+      minimum-idle: ${HIKARI_WRITE_MIN:30}
+      connection-timeout: 10000
       idle-timeout: 300000
       max-lifetime: 600000
       validation-timeout: 3000
