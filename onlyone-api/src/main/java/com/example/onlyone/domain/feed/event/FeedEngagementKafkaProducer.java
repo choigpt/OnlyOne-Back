@@ -2,8 +2,8 @@ package com.example.onlyone.domain.feed.event;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Component;
@@ -15,20 +15,26 @@ import org.springframework.stereotype.Component;
  */
 @Slf4j
 @Component
-@RequiredArgsConstructor
 @ConditionalOnProperty(name = "spring.kafka.enabled", havingValue = "true")
 public class FeedEngagementKafkaProducer {
 
     public static final String TOPIC = "feed.engagement.v1";
 
-    private final KafkaTemplate<String, String> ledgerKafkaTemplate;
+    private final KafkaTemplate<String, String> kafkaTemplate;
     private final ObjectMapper objectMapper;
+
+    public FeedEngagementKafkaProducer(
+            @Qualifier("feedEngagementKafkaTemplate") KafkaTemplate<String, String> kafkaTemplate,
+            ObjectMapper objectMapper) {
+        this.kafkaTemplate = kafkaTemplate;
+        this.objectMapper = objectMapper;
+    }
 
     public void publish(FeedEngagementEvent event) {
         try {
             String payload = objectMapper.writeValueAsString(event);
             String key = String.valueOf(event.feedId());
-            ledgerKafkaTemplate.send(TOPIC, key, payload);
+            kafkaTemplate.send(TOPIC, key, payload);
             log.debug("Kafka engagement 발행: feedId={}, type={}", event.feedId(), event.type());
         } catch (JsonProcessingException e) {
             log.warn("Kafka engagement 직렬화 실패: feedId={}", event.feedId(), e);

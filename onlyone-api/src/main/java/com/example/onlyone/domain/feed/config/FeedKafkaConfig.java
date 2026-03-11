@@ -4,15 +4,16 @@ import com.example.onlyone.domain.feed.event.FeedEngagementKafkaProducer;
 import com.example.onlyone.domain.settlement.config.kafka.KafkaProperties;
 import lombok.RequiredArgsConstructor;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
+import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.common.config.TopicConfig;
 import org.apache.kafka.common.serialization.StringDeserializer;
+import org.apache.kafka.common.serialization.StringSerializer;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.kafka.config.ConcurrentKafkaListenerContainerFactory;
 import org.springframework.kafka.config.TopicBuilder;
-import org.springframework.kafka.core.ConsumerFactory;
-import org.springframework.kafka.core.DefaultKafkaConsumerFactory;
+import org.springframework.kafka.core.*;
 import org.springframework.kafka.listener.ContainerProperties;
 
 import java.time.Duration;
@@ -29,6 +30,22 @@ import java.util.Map;
 public class FeedKafkaConfig {
 
     private final KafkaProperties kafkaProperties;
+
+    /** Fire-and-forget producer — 트랜잭션 없음 (정산용 ledgerKafkaTemplate과 분리) */
+    @Bean
+    public KafkaTemplate<String, String> feedEngagementKafkaTemplate() {
+        var producer = kafkaProperties.getProducer().getCommonConfig();
+        Map<String, Object> config = new HashMap<>();
+        config.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, producer.getBootstrapServers());
+        config.put(ProducerConfig.CLIENT_ID_CONFIG, "feed-engagement-producer");
+        config.put(ProducerConfig.ACKS_CONFIG, "1");
+        config.put(ProducerConfig.LINGER_MS_CONFIG, 5);
+        config.put(ProducerConfig.BATCH_SIZE_CONFIG, 16384);
+        config.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class);
+        config.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, StringSerializer.class);
+        // transactionalIdPrefix 미설정 → non-transactional
+        return new KafkaTemplate<>(new DefaultKafkaProducerFactory<>(config));
+    }
 
     @Bean
     public ConsumerFactory<String, String> feedEngagementConsumerFactory() {
