@@ -7,6 +7,7 @@ import com.example.onlyone.domain.payment.dto.request.SavePaymentRequestDto;
 import com.example.onlyone.domain.payment.feign.TossPaymentClient;
 import com.example.onlyone.domain.finance.exception.FinanceErrorCode;
 import com.example.onlyone.global.exception.CustomException;
+import com.example.onlyone.global.exception.ErrorCode;
 import com.example.onlyone.global.exception.GlobalErrorCode;
 import feign.FeignException;
 import jakarta.validation.Valid;
@@ -49,8 +50,8 @@ public class PaymentService {
         if (saved == null) {
             throw new CustomException(FinanceErrorCode.INVALID_PAYMENT_INFO);
         }
-        String savedAmount = saved.toString();
-        if (!savedAmount.equals(String.valueOf(dto.amount()))) {
+        long savedAmount = Long.parseLong(saved.toString());
+        if (savedAmount != dto.amount()) {
             throw new CustomException(FinanceErrorCode.INVALID_PAYMENT_INFO);
         }
         redisTemplate.delete(redisKey);
@@ -85,14 +86,11 @@ public class PaymentService {
             try {
                 response = tossPaymentClient.confirmPayment(req);
             } catch (FeignException.BadRequest e) {
-                txService.reportFail(req);
-                throw new CustomException(FinanceErrorCode.INVALID_PAYMENT_INFO);
+                throw handlePaymentFailure(req, FinanceErrorCode.INVALID_PAYMENT_INFO, e);
             } catch (FeignException e) {
-                txService.reportFail(req);
-                throw new CustomException(FinanceErrorCode.TOSS_PAYMENT_FAILED);
+                throw handlePaymentFailure(req, FinanceErrorCode.TOSS_PAYMENT_FAILED, e);
             } catch (Exception e) {
-                txService.reportFail(req);
-                throw new CustomException(GlobalErrorCode.INTERNAL_SERVER_ERROR);
+                throw handlePaymentFailure(req, GlobalErrorCode.INTERNAL_SERVER_ERROR, e);
             }
 
             // Phase 3: paymentKey 저장 + 지갑 반영 + 트랜잭션 기록 (독립 트랜잭션)
@@ -115,6 +113,12 @@ public class PaymentService {
     /* 결제 실패 기록 (Controller에서 직접 호출용) */
     public void reportFail(ConfirmTossPayRequest req) {
         txService.reportFail(req);
+    }
+
+    private CustomException handlePaymentFailure(ConfirmTossPayRequest req, ErrorCode errorCode, Exception cause) {
+        txService.reportFail(req);
+        log.error("Payment failed: orderId={}, error={}", req.orderId(), cause.getMessage(), cause);
+        return new CustomException(errorCode);
     }
 
     /* 보상: Toss 결제 취소 + Payment 상태 CANCELED */

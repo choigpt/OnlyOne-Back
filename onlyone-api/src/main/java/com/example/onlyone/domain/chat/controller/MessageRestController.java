@@ -20,8 +20,13 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
+import org.springframework.validation.annotation.Validated;
+
 import java.time.LocalDateTime;
 
+@Validated
 @RestController
 @RequiredArgsConstructor
 @RequestMapping("/api/v1/chat")
@@ -54,7 +59,7 @@ public class MessageRestController {
     @GetMapping("/{chatRoomId}/messages")
     public ResponseEntity<CommonResponse<ChatRoomMessageResponse>> getChatRoomMessages(
             @PathVariable Long chatRoomId,
-            @RequestParam(required = false, defaultValue = "50") Integer size,
+            @RequestParam(required = false, defaultValue = "50") @Min(1) @Max(100) Integer size,
             @RequestParam(required = false) Long cursorId,
             @RequestParam(required = false)
             @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime cursorAt) {

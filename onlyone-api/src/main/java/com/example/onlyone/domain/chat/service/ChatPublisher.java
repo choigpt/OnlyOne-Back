@@ -14,7 +14,7 @@ public class ChatPublisher {
 
     public void publish(Long roomId, String message) {
         if (roomId == null || message == null || message.isBlank()) {
-            log.debug("ChatPublisher 무시: roomId={}, message blank={}", roomId, message == null || message.isBlank());
+            log.debug("ChatPublisher 무시: roomId={}", roomId);
             return;
         }
         String channel = "chat.room." + roomId;

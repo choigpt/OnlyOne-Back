@@ -34,7 +34,8 @@ public class WebMvcConfig implements WebMvcConfigurer {
     }
 
     /**
-     * CORS 설정 - SSE 연결을 위한 필수 헤더 허용
+     * SecurityConfig의 CORS 설정이 Spring Security 필터 체인에서 우선 적용됨.
+     * 이 설정은 Security 필터를 거치지 않는 요청(정적 리소스 등)에 대한 fallback.
      */
     @Override
     public void addCorsMappings(CorsRegistry registry) {

@@ -5,6 +5,7 @@ import com.example.onlyone.domain.settlement.entity.SettlementStatus;
 import com.example.onlyone.domain.settlement.entity.UserSettlement;
 import com.example.onlyone.domain.settlement.repository.UserSettlementRepository;
 import com.example.onlyone.domain.user.entity.User;
+import com.example.onlyone.domain.settlement.util.OperationIdUtil;
 import com.example.onlyone.domain.user.repository.UserRepository;
 import com.example.onlyone.domain.wallet.entity.Wallet;
 import com.example.onlyone.domain.wallet.repository.WalletRepository;
@@ -26,6 +27,7 @@ import java.util.Map;
 @Transactional
 @RequiredArgsConstructor
 public class UserSettlementService {
+    // 정산 처리 최대 소요시간 기준, 초과 시 자동 해제
     private static final int WALLET_GATE_TTL_SECONDS = 10;
 
     private final UserSettlementRepository userSettlementRepository;
@@ -62,7 +64,7 @@ public class UserSettlementService {
             Wallet memberWallet = walletRepository.findByUserWithoutLock(participant)
                     .orElseThrow(() -> new CustomException(FinanceErrorCode.WALLET_NOT_FOUND));
             Long memberWalletId = memberWallet.getWalletId();
-            String operationId = ("stl:%d:usr:%d:v1").formatted(settlementId, participantId);
+            String operationId = OperationIdUtil.generate(settlementId, participantId);
             try {
                 // 조건부 UPDATE
                 int captured = walletRepository.captureHold(participantId, amount);

@@ -88,6 +88,11 @@ public interface UserSettlementRepository extends JpaRepository<UserSettlement, 
     @Query(value = "SELECT user_settlement_id FROM user_settlement WHERE settlement_id = :settlementId AND user_id = :userId", nativeQuery = true)
     Long findUserSettlementId(@Param("settlementId") Long settlementId, @Param("userId") Long userId);
 
-    @Query(value = "SELECT user_id, user_settlement_id FROM user_settlement WHERE settlement_id = :settlementId AND user_id IN (:userIds)", nativeQuery = true)
-    List<Object[]> findUserSettlementIdsBySettlementIdAndUserIds(@Param("settlementId") Long settlementId, @Param("userIds") List<Long> userIds);
+    @Query(value = "SELECT user_id AS userId, user_settlement_id AS userSettlementId FROM user_settlement WHERE settlement_id = :settlementId AND user_id IN (:userIds)", nativeQuery = true)
+    List<UserSettlementIdProjection> findUserSettlementIdsBySettlementIdAndUserIds(@Param("settlementId") Long settlementId, @Param("userIds") List<Long> userIds);
+
+    interface UserSettlementIdProjection {
+        Long getUserId();
+        Long getUserSettlementId();
+    }
 }

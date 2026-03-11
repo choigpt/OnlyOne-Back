@@ -47,9 +47,6 @@ public class WalletTransaction extends BaseTimeEntity {
     @Enumerated(EnumType.STRING)
     private WalletTransactionStatus walletTransactionStatus;
 
-//    @Column(name = "imp_uid",  updatable = false, unique = true)
-//    private String impUid;
-
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "wallet_id", updatable = false)
     @NotNull
@@ -82,6 +79,28 @@ public class WalletTransaction extends BaseTimeEntity {
         this.walletTransactionStatus = walletTransactionStatus;
     }
 
+    /**
+     * 충전 확정 결과를 반영한다.
+     * 결제(Toss Pay 등) 승인 후 지갑 트랜잭션의 금액·잔액·상태를 최종 확정 값으로 갱신한다.
+     *
+     * @param chargeAmount  충전 금액
+     * @param postedBalance 충전 반영 후 지갑 잔액
+     * @param wallet        충전 대상 지갑 (source = target, 자기 충전)
+     */
+    public void applyChargeResult(Long chargeAmount, Long postedBalance, Wallet wallet) {
+        this.type = TransactionType.CHARGE;
+        this.amount = chargeAmount;
+        this.balance = postedBalance;
+        this.walletTransactionStatus = WalletTransactionStatus.COMPLETED;
+        this.wallet = wallet;
+        this.targetWallet = wallet;
+    }
+
+    /**
+     * @deprecated {@link #applyChargeResult(Long, Long, Wallet)}을 사용하세요.
+     *             범용 파라미터 6개 → 도메인 특화 메서드로 전환되었습니다.
+     */
+    @Deprecated(forRemoval = true)
     public void update(TransactionType type, Long amount, Long postedBalance, WalletTransactionStatus walletTransactionStatus, Wallet wallet, Wallet targetWallet) {
         this.type = type;
         this.amount = amount;

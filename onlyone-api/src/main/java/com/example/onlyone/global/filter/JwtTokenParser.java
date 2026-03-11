@@ -2,6 +2,7 @@ package com.example.onlyone.global.filter;
 
 import com.example.onlyone.domain.user.dto.UserPrincipal;
 import com.example.onlyone.global.exception.ErrorCode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.JwtParser;
 import io.jsonwebtoken.Jwts;
@@ -17,6 +18,7 @@ import org.springframework.stereotype.Component;
 import javax.crypto.SecretKey;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.util.Map;
 
 /**
  * JWT 토큰 파싱 및 UserPrincipal 생성 공통 유틸리티
@@ -31,10 +33,16 @@ public class JwtTokenParser {
     private static final int MIN_SECRET_LENGTH = 32; // 256 bits
     private static final String BEARER_PREFIX = "Bearer ";
 
+    private final ObjectMapper objectMapper;
+
     @Value("${jwt.secret}")
     private String jwtSecret;
 
     private JwtParser jwtParser;
+
+    public JwtTokenParser(ObjectMapper objectMapper) {
+        this.objectMapper = objectMapper;
+    }
 
     @PostConstruct
     void init() {
@@ -59,28 +67,20 @@ public class JwtTokenParser {
                 .parseSignedClaims(token)
                 .getPayload();
 
-        String userIdString = claims.getSubject();
-        if (userIdString == null || userIdString.isBlank()) {
-            throw new IllegalArgumentException("JWT subject (userId) is missing");
-        }
-
-        Object kakaoIdObj = claims.get("kakaoId");
-        if (kakaoIdObj == null) {
-            throw new IllegalArgumentException("JWT claim 'kakaoId' is missing");
-        }
-        String kakaoIdString = String.valueOf(kakaoIdObj);
-
-        String statusString = claims.get("status", String.class);
-        if (statusString == null || statusString.isBlank()) {
-            throw new IllegalArgumentException("JWT claim 'status' is missing");
-        }
-
-        String roleString = claims.get("role", String.class);
-        if (roleString == null || roleString.isBlank()) {
-            throw new IllegalArgumentException("JWT claim 'role' is missing");
-        }
+        String userIdString = requireClaim(claims, "sub");
+        String kakaoIdString = requireClaim(claims, "kakaoId");
+        String statusString = requireClaim(claims, "status");
+        String roleString = requireClaim(claims, "role");
 
         return UserPrincipal.fromClaims(userIdString, kakaoIdString, statusString, roleString);
+    }
+
+    private String requireClaim(Claims claims, String claimName) {
+        Object value = "sub".equals(claimName) ? claims.getSubject() : claims.get(claimName);
+        if (value == null || value.toString().isBlank()) {
+            throw new IllegalArgumentException("Missing required claim: " + claimName);
+        }
+        return value.toString();
     }
 
     /**
@@ -109,13 +109,17 @@ public class JwtTokenParser {
      * 필터에서 사용하는 공통 에러 응답 메서드.
      * GlobalExceptionHandler를 거치지 않으므로 동일한 JSON 형식으로 직접 응답합니다.
      */
-    public static void writeErrorResponse(HttpServletResponse response, ErrorCode errorCode) throws IOException {
+    public void writeErrorResponse(HttpServletResponse response, ErrorCode errorCode) throws IOException {
         response.setStatus(errorCode.getStatus());
         response.setContentType("application/json");
         response.setCharacterEncoding("UTF-8");
-        response.getWriter().write(
-                "{\"success\":false,\"data\":{\"code\":\"%s\",\"message\":\"%s\"}}"
-                        .formatted(errorCode.getCode(), errorCode.getMessage())
+        Map<String, Object> errorBody = Map.of(
+                "success", false,
+                "data", Map.of(
+                        "code", errorCode.getCode(),
+                        "message", errorCode.getMessage()
+                )
         );
+        response.getWriter().write(objectMapper.writeValueAsString(errorBody));
     }
 }

@@ -1,5 +1,6 @@
 package com.example.onlyone.domain.notification.service;
 
+import com.example.onlyone.domain.notification.config.NotificationProperties;
 import com.example.onlyone.domain.notification.dto.response.NotificationSseDto;
 import com.example.onlyone.domain.notification.event.NotificationCreatedEvent;
 import com.example.onlyone.domain.notification.port.NotificationDeliveryPort;
@@ -7,7 +8,6 @@ import com.example.onlyone.domain.notification.port.NotificationStoragePort;
 import jakarta.annotation.PreDestroy;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.event.TransactionPhase;
@@ -39,15 +39,7 @@ public class NotificationBatchProcessor {
     private final NotificationDeliveryPort deliveryPort;
     private final TransactionTemplate transactionTemplate;
     private final NotificationUndeliveredCache undeliveredCache;
-
-    @Value("${app.notification.batch-size:10}")
-    private int batchSize;
-
-    @Value("${app.notification.max-queue-size-per-user:100}")
-    private int maxQueueSizePerUser;
-
-    @Value("${app.notification.batch-timeout-seconds:5}")
-    private int batchTimeoutSeconds;
+    private final NotificationProperties properties;
 
     private final Map<Long, BlockingQueue<NotificationCreatedEvent>> pendingQueues = new ConcurrentHashMap<>();
     private volatile boolean shuttingDown = false;
@@ -102,7 +94,7 @@ public class NotificationBatchProcessor {
 
         if (!sendFutures.isEmpty()) {
             currentBatchFuture = CompletableFuture.allOf(sendFutures.toArray(CompletableFuture[]::new))
-                    .orTimeout(batchTimeoutSeconds, TimeUnit.SECONDS)
+                    .orTimeout(properties.getBatchTimeoutSeconds(), TimeUnit.SECONDS)
                     .exceptionally(ex -> {
                         log.warn("배치 타임아웃 또는 오류: {}", ex.getMessage());
                         return null;
@@ -120,7 +112,7 @@ public class NotificationBatchProcessor {
         try {
             if (!currentBatchFuture.isDone()) {
                 log.info("진행 중인 배치 완료 대기...");
-                currentBatchFuture.get(batchTimeoutSeconds, TimeUnit.SECONDS);
+                currentBatchFuture.get(properties.getBatchTimeoutSeconds(), TimeUnit.SECONDS);
             }
         } catch (Exception e) {
             log.warn("배치 완료 대기 중 오류: {}", e.getMessage());
@@ -138,7 +130,7 @@ public class NotificationBatchProcessor {
 
     private void enqueueNotification(Long userId, NotificationCreatedEvent event) {
         BlockingQueue<NotificationCreatedEvent> queue = pendingQueues.computeIfAbsent(
-                userId, k -> new LinkedBlockingQueue<>(maxQueueSizePerUser));
+                userId, k -> new LinkedBlockingQueue<>(properties.getMaxQueueSizePerUser()));
 
         if (!queue.offer(event)) {
             log.warn("큐 포화 - 오래된 알림 제거: userId={}", userId);
@@ -148,8 +140,8 @@ public class NotificationBatchProcessor {
     }
 
     private List<NotificationCreatedEvent> drainQueue(BlockingQueue<NotificationCreatedEvent> queue) {
-        List<NotificationCreatedEvent> batch = new ArrayList<>(batchSize);
-        queue.drainTo(batch, batchSize);
+        List<NotificationCreatedEvent> batch = new ArrayList<>(properties.getBatchSize());
+        queue.drainTo(batch, properties.getBatchSize());
         return batch;
     }
 

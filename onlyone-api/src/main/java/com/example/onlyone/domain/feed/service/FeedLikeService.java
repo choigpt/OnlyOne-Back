@@ -37,6 +37,19 @@ public class FeedLikeService implements FeedLikeToggleService {
 
     private static final Duration EXISTS_CACHE_TTL = Duration.ofMinutes(10);
 
+    private static final String LIKERS_KEY_FORMAT = "feed:%d:likers";
+    private static final String LIKE_COUNT_KEY_FORMAT = "feed:%d:like_count";
+    private static final String LIKE_EVENTS_KEY = "like:events";
+    private static final String IDEMP_KEY_FORMAT = "idemp:%s";
+    private static final String CLUB_EXISTS_KEY_FORMAT = "club:exists:%d";
+    private static final String FEED_EXISTS_KEY_FORMAT = "feed:exists:%d";
+
+    private static String likersKey(Long feedId) { return LIKERS_KEY_FORMAT.formatted(feedId); }
+    private static String likeCountKey(Long feedId) { return LIKE_COUNT_KEY_FORMAT.formatted(feedId); }
+    private static String idempKey(String reqId) { return IDEMP_KEY_FORMAT.formatted(reqId); }
+    private static String clubExistsKey(Long clubId) { return CLUB_EXISTS_KEY_FORMAT.formatted(clubId); }
+    private static String feedExistsKey(Long feedId) { return FEED_EXISTS_KEY_FORMAT.formatted(feedId); }
+
     @Override
     public boolean toggleLike(long clubId, long feedId) {
         validateClubExists(clubId);
@@ -45,13 +58,14 @@ public class FeedLikeService implements FeedLikeToggleService {
 
         warmupService.triggerAsync(feedId);
 
+        // reqId: Lua 스크립트 내 idemp:{feedId}:{reqId} 키로 중복 요청 방지 (TTL 기반)
         String reqId = UUID.randomUUID().toString();
 
         List<String> keys = List.of(
-                "feed:" + feedId + ":likers",
-                "feed:" + feedId + ":like_count",
-                "like:events",
-                "idemp:" + reqId
+                likersKey(feedId),
+                likeCountKey(feedId),
+                LIKE_EVENTS_KEY,
+                idempKey(reqId)
         );
         Object[] args = {
                 String.valueOf(userId),
@@ -73,7 +87,7 @@ public class FeedLikeService implements FeedLikeToggleService {
     }
 
     private void validateClubExists(long clubId) {
-        String key = "club:exists:" + clubId;
+        String key = clubExistsKey(clubId);
         if (Boolean.TRUE.equals(redis.hasKey(key))) return;
         if (!clubRepository.existsById(clubId)) {
             throw new CustomException(ClubErrorCode.CLUB_NOT_FOUND);
@@ -82,7 +96,7 @@ public class FeedLikeService implements FeedLikeToggleService {
     }
 
     private void validateFeedExists(long feedId) {
-        String key = "feed:exists:" + feedId;
+        String key = feedExistsKey(feedId);
         if (Boolean.TRUE.equals(redis.hasKey(key))) return;
         if (!feedRepository.existsById(feedId)) {
             throw new CustomException(FeedErrorCode.FEED_NOT_FOUND);

@@ -25,7 +25,9 @@ public class NotificationUndeliveredCache {
     private static final String KEY_PREFIX = "notification:pending:";
     private static final Duration CACHE_TTL = Duration.ofMinutes(30);
     private static final int MAX_CACHED_PER_USER = 50;
-    private static final String FIELD_SEP = "\u001F"; // Unit Separator
+    /** ASCII Unit Separator (0x1F) — 알림 필드 간 구분자. 일반 텍스트에 포함되지 않아 파싱 안전 */
+    private static final String FIELD_SEP = "\u001F";
+    private static final int SERIALIZED_FIELD_COUNT = 5;
 
     private final StringRedisTemplate redis;
 
@@ -85,6 +87,8 @@ public class NotificationUndeliveredCache {
         return KEY_PREFIX + userId;
     }
 
+    // 직렬화 포맷: notificationId{SEP}content{SEP}type{SEP}isRead{SEP}createdAt
+    // 버전 마커 없음 — 포맷 변경 시 기존 캐시 자동 만료(TTL 30분) 후 갱신
     private String serialize(NotificationCreatedEvent e) {
         return e.notificationId() + FIELD_SEP
                 + e.content() + FIELD_SEP
@@ -95,7 +99,7 @@ public class NotificationUndeliveredCache {
 
     private NotificationItemDto deserialize(String s) {
         try {
-            String[] parts = s.split(FIELD_SEP, 5);
+            String[] parts = s.split(FIELD_SEP, SERIALIZED_FIELD_COUNT);
             return new NotificationItemDto(
                     Long.parseLong(parts[0]),
                     parts[1],

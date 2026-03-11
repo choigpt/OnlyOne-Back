@@ -23,28 +23,28 @@ public class PaymentController {
 
     @Operation(summary = "결제 정보 임시 저장", description = "결제 승인 API 호출 전 결제 정보를 세션에 임시 저장합니다.")
     @PostMapping("/save")
-    public ResponseEntity<?> savePayment(@RequestBody @Valid SavePaymentRequestDto dto) {
+    public ResponseEntity<CommonResponse<Void>> savePayment(@RequestBody @Valid SavePaymentRequestDto dto) {
         paymentService.savePaymentInfo(dto);
         return ResponseEntity.ok(CommonResponse.success(null));
     }
 
     @Operation(summary = "결제 정보 검증", description = "결제 승인 전 세션에 저장된 정보와 금액을 비교합니다.")
     @PostMapping(value = "/success")
-    public ResponseEntity<?> paymentSuccess(@RequestBody @Valid SavePaymentRequestDto dto) {
+    public ResponseEntity<CommonResponse<Void>> paymentSuccess(@RequestBody @Valid SavePaymentRequestDto dto) {
         paymentService.confirmPayment(dto);
         return ResponseEntity.ok(CommonResponse.success(null));
     }
 
     @Operation(summary = "결제 승인", description = "결제 승인 요청을 토스페이먼츠에 전달합니다.")
     @PostMapping(value = "/confirm", consumes = MediaType.APPLICATION_JSON_VALUE)
-    public ResponseEntity<?> confirmPayment(@RequestBody ConfirmTossPayRequest req) {
+    public ResponseEntity<CommonResponse<ConfirmTossPayResponse>> confirmPayment(@RequestBody ConfirmTossPayRequest req) {
         ConfirmTossPayResponse response = paymentService.confirm(req);
         return ResponseEntity.ok(CommonResponse.success(response));
     }
 
     @Operation(summary = "결제 실패 기록", description = "토스페이먼츠 결제 요청의 최종 실패를 기록합니다.")
     @PostMapping(value = "/fail")
-    public ResponseEntity<?> failPayment(@RequestBody ConfirmTossPayRequest req) {
+    public ResponseEntity<CommonResponse<Void>> failPayment(@RequestBody ConfirmTossPayRequest req) {
         paymentService.reportFail(req);
         return ResponseEntity.ok(CommonResponse.success(null));
     }

@@ -34,6 +34,9 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class SettlementCommandService {
 
+    private static final String AGGREGATE_TYPE_SETTLEMENT = "Settlement";
+    private static final String EVENT_TYPE_SETTLEMENT_PROCESS = "SettlementProcessEvent";
+
     private final UserService userService;
     private final ClubRepository clubRepository;
     private final SettlementRepository settlementRepository;
@@ -99,9 +102,9 @@ public class SettlementCommandService {
 
         log.info("정산 Outbox 발행: settlementId={}, targetUsers={}, totalAmount={}", settlement.getSettlementId(), userCount, totalAmount);
         outboxAppender.append(
-                "Settlement",
+                AGGREGATE_TYPE_SETTLEMENT,
                 settlement.getSettlementId(),
-                "SettlementProcessEvent",
+                EVENT_TYPE_SETTLEMENT_PROCESS,
                 String.valueOf(settlement.getSettlementId()),
                 Map.of(
                         "eventId", UUID.randomUUID().toString(),

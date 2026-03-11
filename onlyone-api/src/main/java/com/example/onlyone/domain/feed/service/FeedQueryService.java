@@ -24,6 +24,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Collections;
 import java.util.List;
+import java.util.function.Supplier;
 
 @Service
 @Transactional(readOnly = true)
@@ -37,7 +38,9 @@ public class FeedQueryService {
     private final FeedCacheService cache;
     private final FeedRenderService renderService;
 
+    /** 캐시 메모리 절약을 위해 처음 5페이지만 Redis에 캐싱 (이후 페이지는 DB 직접 조회) */
     private static final int MAX_CACHEABLE_PAGE = 5;
+    /** 피드 상세 조회 시 댓글 첫 페이지 기본 크기 */
     private static final int DEFAULT_COMMENT_PAGE_SIZE = 20;
     private static final String PERSONAL_FEED_KEY_PREFIX = FeedCacheService.PERSONAL_FEED_KEY_PREFIX;
     private static final String POPULAR_FEED_KEY_PREFIX = FeedCacheService.POPULAR_FEED_KEY_PREFIX;
@@ -104,47 +107,49 @@ public class FeedQueryService {
             return renderService.buildOverviewList(pass1, userId);
         }
 
-        // offset 기반 — 모든 페이지 캐싱 (MAX_CACHEABLE_PAGE 이하)
-        boolean cacheable = pageable.getPageNumber() <= MAX_CACHEABLE_PAGE;
-        String resultKey = cacheable ? PERSONAL_FEED_KEY_PREFIX + userId + ":" + pageable.getPageNumber() + ":" + pageable.getPageSize() : null;
-
-        List<FeedOverviewDto> cachedResult = cache.getResult(resultKey);
-        if (cachedResult != null) return cachedResult;
-
-        String pass1Key = cacheable ? PERSONAL_FEED_KEY_PREFIX + "p1:" + userId + ":" + pageable.getPageNumber() + ":" + pageable.getPageSize() : null;
-        List<FeedIdWithCounts> pass1 = cacheable ? cache.getPass1(pass1Key) : null;
-
-        if (pass1 == null) {
+        // offset 기반 — pass1 캐시 → result 캐시 → DB fallback
+        return loadFeedWithCache(PERSONAL_FEED_KEY_PREFIX, pageable, userId, () -> {
             List<Long> clubIds = userClubRepository.findAccessibleClubIds(userId);
             if (clubIds.isEmpty()) return Collections.emptyList();
-            pass1 = feedStoragePort.findPersonalFeedIds(clubIds, pageable);
-            if (cacheable) cache.putPass1(pass1Key, pass1);
-        }
-
-        List<FeedOverviewDto> result = renderService.buildOverviewList(pass1, userId);
-        if (cacheable) cache.putResult(resultKey, result);
-        return result;
+            return feedStoragePort.findPersonalFeedIds(clubIds, pageable);
+        });
     }
 
     private List<FeedOverviewDto> loadPopularFeed(Pageable pageable) {
         Long userId = userService.getCurrentUserId();
-        boolean cacheable = pageable.getPageNumber() <= MAX_CACHEABLE_PAGE;
 
-        String resultKey = cacheable ? POPULAR_FEED_KEY_PREFIX + userId + ":" + pageable.getPageNumber() + ":" + pageable.getPageSize() : null;
+        return loadFeedWithCache(POPULAR_FEED_KEY_PREFIX, pageable, userId, () -> {
+            List<Long> clubIds = userClubRepository.findAccessibleClubIds(userId);
+            if (clubIds.isEmpty()) return Collections.emptyList();
+            return feedStoragePort.findPopularFeedIds(clubIds, pageable);
+        });
+    }
+
+    /**
+     * 공통 캐시 흐름: result 캐시 확인 → pass1 캐시 확인 → DB 조회 → 캐시 저장.
+     * MAX_CACHEABLE_PAGE 이하인 페이지만 캐싱한다.
+     */
+    private List<FeedOverviewDto> loadFeedWithCache(String keyPrefix, Pageable pageable, Long userId,
+                                                     Supplier<List<FeedIdWithCounts>> pass1Fetcher) {
+        boolean cacheable = pageable.getPageNumber() <= MAX_CACHEABLE_PAGE;
+        String pageSuffix = userId + ":" + pageable.getPageNumber() + ":" + pageable.getPageSize();
+
+        // 1) result 캐시 확인
+        String resultKey = cacheable ? keyPrefix + pageSuffix : null;
         List<FeedOverviewDto> cachedResult = cache.getResult(resultKey);
         if (cachedResult != null) return cachedResult;
 
-        List<Long> clubIds = userClubRepository.findAccessibleClubIds(userId);
-        if (clubIds.isEmpty()) return Collections.emptyList();
-
-        String pass1Key = cacheable ? POPULAR_FEED_KEY_PREFIX + "p1:" + userId + ":" + pageable.getPageNumber() + ":" + pageable.getPageSize() : null;
+        // 2) pass1 캐시 확인 → DB fallback
+        String pass1Key = cacheable ? keyPrefix + "p1:" + pageSuffix : null;
         List<FeedIdWithCounts> pass1 = cacheable ? cache.getPass1(pass1Key) : null;
 
         if (pass1 == null) {
-            pass1 = feedStoragePort.findPopularFeedIds(clubIds, pageable);
+            pass1 = pass1Fetcher.get();
+            if (pass1.isEmpty()) return Collections.emptyList();
             if (cacheable) cache.putPass1(pass1Key, pass1);
         }
 
+        // 3) 렌더링 + result 캐시 저장
         List<FeedOverviewDto> result = renderService.buildOverviewList(pass1, userId);
         if (cacheable) cache.putResult(resultKey, result);
         return result;

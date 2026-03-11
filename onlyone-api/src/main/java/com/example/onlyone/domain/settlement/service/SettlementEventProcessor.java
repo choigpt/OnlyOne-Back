@@ -3,6 +3,7 @@ package com.example.onlyone.domain.settlement.service;
 import com.example.onlyone.common.event.SettlementCompletedEvent;
 import com.example.onlyone.domain.settlement.event.SettlementProcessEvent;
 import com.example.onlyone.domain.settlement.repository.SettlementRepository;
+import com.example.onlyone.domain.settlement.util.OperationIdUtil;
 import com.example.onlyone.domain.settlement.repository.UserSettlementRepository;
 import com.example.onlyone.domain.finance.exception.FinanceErrorCode;
 import com.example.onlyone.domain.wallet.repository.WalletRepository;
@@ -32,6 +33,7 @@ import java.util.Map;
 @Component
 public class SettlementEventProcessor {
 
+    // settlementId * 10_000 + participantId로 고유 aggregateId 생성 (정산당 최대 10,000명)
     private static final long OUTBOX_AGGREGATE_MULTIPLIER = 10_000;
 
     private final ObjectMapper objectMapper;
@@ -113,13 +115,13 @@ public class SettlementEventProcessor {
 
                 // 3. 배치 조회 — walletId, userSettlementId를 IN절로 한번에
                 Map<Long, Long> walletIdMap = new HashMap<>();
-                for (Object[] row : walletRepository.findWalletIdsByUserIds(sortedUserIds)) {
-                    walletIdMap.put(((Number) row[0]).longValue(), ((Number) row[1]).longValue());
+                for (var row : walletRepository.findWalletIdsByUserIds(sortedUserIds)) {
+                    walletIdMap.put(row.getUserId(), row.getWalletId());
                 }
                 Map<Long, Long> usIdMap = new HashMap<>();
-                for (Object[] row : userSettlementRepository
+                for (var row : userSettlementRepository
                         .findUserSettlementIdsBySettlementIdAndUserIds(settlementId, sortedUserIds)) {
-                    usIdMap.put(((Number) row[0]).longValue(), ((Number) row[1]).longValue());
+                    usIdMap.put(row.getUserId(), row.getUserSettlementId());
                 }
 
                 // 4. Outbox 이벤트 — 참가자별 append
@@ -139,7 +141,7 @@ public class SettlementEventProcessor {
     private void appendSuccessOutbox(SettlementProcessEvent event, Long participantId,
                                      Long memberWalletId, Long userSettlementId) {
         Long settlementId = event.settlementId();
-        String operationId = ("stl:%d:usr:%d:v1").formatted(settlementId, participantId);
+        String operationId = OperationIdUtil.generate(settlementId, participantId);
         outboxAppender.append(
                 "UserSettlement",
                 settlementId * OUTBOX_AGGREGATE_MULTIPLIER + participantId,

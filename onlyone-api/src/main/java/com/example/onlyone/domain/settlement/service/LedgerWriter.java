@@ -2,6 +2,7 @@ package com.example.onlyone.domain.settlement.service;
 
 import com.example.onlyone.domain.settlement.entity.UserSettlement;
 import com.example.onlyone.domain.settlement.repository.TransferRepository;
+import com.example.onlyone.domain.settlement.util.OperationIdUtil;
 import com.example.onlyone.domain.settlement.repository.UserSettlementRepository;
 import com.example.onlyone.domain.wallet.entity.Transfer;
 import com.example.onlyone.domain.wallet.entity.Wallet;
@@ -37,6 +38,7 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class LedgerWriter {
 
+    // MySQL bulk INSERT 최적 배치 크기
     private static final int TRANSFER_BATCH_SIZE = 1000;
 
     private final ObjectMapper objectMapper;
@@ -73,8 +75,8 @@ public class LedgerWriter {
         for (JsonNode root : events) {
             String operationId = root.path("operationId").asText();
             if (operationId == null || operationId.isBlank()) continue;
-            candidateOperationIds.add(operationId + ":OUT");
-            candidateOperationIds.add(operationId + ":IN");
+            candidateOperationIds.add(operationId + OperationIdUtil.OUTGOING_SUFFIX);
+            candidateOperationIds.add(operationId + OperationIdUtil.INCOMING_SUFFIX);
         }
         return new HashSet<>(walletTransactionRepository.findExistingOperationIds(candidateOperationIds));
     }
@@ -100,7 +102,7 @@ public class LedgerWriter {
                     type.equals("SUCCESS") ? WalletTransactionStatus.COMPLETED : WalletTransactionStatus.FAILED;
 
             // OUTGOING
-            String outId = operationId + ":OUT";
+            String outId = operationId + OperationIdUtil.OUTGOING_SUFFIX;
             if (!existing.contains(outId)) {
                 WalletTransaction outTx = WalletTransaction.builder()
                         .operationId(outId)
@@ -122,7 +124,7 @@ public class LedgerWriter {
             }
 
             // INCOMING
-            String inId = operationId + ":IN";
+            String inId = operationId + OperationIdUtil.INCOMING_SUFFIX;
             if (!existing.contains(inId)) {
                 WalletTransaction inTx = WalletTransaction.builder()
                         .operationId(inId)

@@ -66,7 +66,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
             if (!principal.isEnabled() && !"/api/v1/auth/logout".equals(request.getRequestURI())) {
                 log.warn("Inactive user attempting to access: userId={}", principal.getUserId());
-                JwtTokenParser.writeErrorResponse(response, UserErrorCode.USER_WITHDRAWN);
+                jwtTokenParser.writeErrorResponse(response, UserErrorCode.USER_WITHDRAWN);
                 return;
             }
 
@@ -76,7 +76,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                         && !"/api/v1/auth/withdraw".equals(uri)) {
                     log.warn("GUEST user attempting to access protected resource: userId={}, uri={}",
                             principal.getUserId(), uri);
-                    JwtTokenParser.writeErrorResponse(response, GlobalErrorCode.NO_PERMISSION);
+                    jwtTokenParser.writeErrorResponse(response, GlobalErrorCode.NO_PERMISSION);
                     return;
                 }
             }
@@ -86,7 +86,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
         } catch (JwtException | IllegalArgumentException e) {
             log.warn("JWT validation failed: {}", e.getClass().getSimpleName());
-            JwtTokenParser.writeErrorResponse(response, GlobalErrorCode.UNAUTHORIZED);
+            jwtTokenParser.writeErrorResponse(response, GlobalErrorCode.UNAUTHORIZED);
             return;
         }
         filterChain.doFilter(request, response);

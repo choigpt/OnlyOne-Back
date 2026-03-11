@@ -1,5 +1,6 @@
 package com.example.onlyone.domain.settlement.controller;
 
+import com.example.onlyone.domain.settlement.dto.response.SettlementResponseDto;
 import com.example.onlyone.domain.settlement.service.SettlementCommandService;
 import com.example.onlyone.domain.settlement.service.SettlementQueryService;
 import com.example.onlyone.global.common.CommonResponse;
@@ -24,7 +25,7 @@ public class SettlementController {
 
     @Operation(summary = "정산 요청 생성", description = "정기 모임의 정산 요청을 생성합니다.")
     @PostMapping
-    public ResponseEntity<?> createSettlement(
+    public ResponseEntity<CommonResponse<Void>> createSettlement(
             @PathVariable("clubId") final Long clubId,
             @PathVariable("scheduleId") final Long scheduleId,
             @RequestParam Long costPerUser) {
@@ -34,7 +35,7 @@ public class SettlementController {
 
     @Operation(summary = "스케줄 참여자 정산 조회", description = "정기 모임 모든 참여자의 정산 상태를 조회합니다.")
     @GetMapping
-    public ResponseEntity<?> getSettlementList(
+    public ResponseEntity<CommonResponse<SettlementResponseDto>> getSettlementList(
             @PathVariable("clubId") final Long clubId,
             @PathVariable("scheduleId") final Long scheduleId,
             @PageableDefault(size = 20, sort = "createdAt", direction = Sort.Direction.DESC)

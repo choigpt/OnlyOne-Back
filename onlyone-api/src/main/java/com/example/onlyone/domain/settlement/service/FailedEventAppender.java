@@ -5,6 +5,7 @@ import com.example.onlyone.domain.settlement.event.OutboxEvent;
 import com.example.onlyone.domain.settlement.event.UserSettlementStatusEvent;
 import com.example.onlyone.domain.settlement.entity.OutboxStatus;
 import com.example.onlyone.domain.settlement.entity.SettlementStatus;
+import com.example.onlyone.domain.settlement.util.OperationIdUtil;
 import com.example.onlyone.domain.settlement.repository.OutboxRepository;
 import com.example.onlyone.domain.settlement.repository.UserSettlementRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -33,7 +34,7 @@ public class FailedEventAppender {
 
             UserSettlementStatusEvent eventDto = new UserSettlementStatusEvent(
                     UserSettlementStatusEvent.ResultType.FAILED,
-                    "stl:%d:usr:%d:v1".formatted(ctx.settlementId(), ctx.participantId()),
+                    OperationIdUtil.generate(ctx.settlementId(), ctx.participantId()),
                     Instant.now(),
                     ctx.settlementId(),
                     ctx.userSettlementId(),

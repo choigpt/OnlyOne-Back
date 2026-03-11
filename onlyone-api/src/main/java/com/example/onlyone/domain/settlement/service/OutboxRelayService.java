@@ -33,6 +33,7 @@ public class OutboxRelayService {
     private final KafkaTemplate<String, String> kafkaTemplate;
     private final KafkaProperties kafkaProperties;
 
+    // 50ms 간격 폴링
     @Scheduled(fixedDelay = 50)
     @Transactional
     public void publishBatch() {
@@ -53,6 +54,7 @@ public class OutboxRelayService {
         });
     }
 
+    // 1분 간격 재시도
     @Scheduled(fixedDelay = 60_000)
     @Transactional
     public void retryFailedMessages() {

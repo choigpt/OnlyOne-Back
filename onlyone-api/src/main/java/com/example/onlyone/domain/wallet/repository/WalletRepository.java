@@ -67,8 +67,14 @@ public interface WalletRepository extends JpaRepository<Wallet, Long> {
     @Query(value = "select wallet_id from wallet where user_id = :userId", nativeQuery = true)
     Long findWalletIdByUserId(@Param("userId") Long userId);
 
-    @Query(value = "SELECT user_id, wallet_id FROM wallet WHERE user_id IN (:userIds)", nativeQuery = true)
-    List<Object[]> findWalletIdsByUserIds(@Param("userIds") List<Long> userIds);
+    /** userId → walletId 매핑용 프로젝션 */
+    interface WalletIdMapping {
+        Long getUserId();
+        Long getWalletId();
+    }
+
+    @Query(value = "SELECT user_id AS userId, wallet_id AS walletId FROM wallet WHERE user_id IN (:userIds)", nativeQuery = true)
+    List<WalletIdMapping> findWalletIdsByUserIds(@Param("userIds") List<Long> userIds);
 
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query(value = """

@@ -5,6 +5,7 @@ import com.example.onlyone.domain.user.entity.Status;
 import com.example.onlyone.domain.user.entity.User;
 import com.example.onlyone.domain.user.service.JwtTokenProvider;
 import com.example.onlyone.global.common.CommonResponse;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Profile;
 import org.springframework.web.bind.annotation.*;
@@ -15,6 +16,7 @@ import java.util.Map;
 /**
  * 테스트용 JWT 발급 컨트롤러 (로컬/테스트 환경 전용)
  */
+@Tag(name = "Test Auth", description = "테스트 인증 API")
 @Profile({"local", "test"})
 @RestController
 @RequestMapping("/test/auth")

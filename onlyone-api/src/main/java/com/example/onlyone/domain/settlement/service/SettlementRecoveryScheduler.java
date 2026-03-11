@@ -18,6 +18,7 @@ import java.time.LocalDateTime;
 @RequiredArgsConstructor
 public class SettlementRecoveryScheduler {
 
+    // Kafka 처리 + 네트워크 타임아웃 + 여유분 고려
     private static final int STUCK_THRESHOLD_MINUTES = 5;
 
     private final SettlementRepository settlementRepository;

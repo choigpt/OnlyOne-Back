@@ -96,7 +96,7 @@ public class PaymentTransactionService {
         WalletTransaction walletTransaction = payment.getWalletTransaction();
 
         if (walletTransaction != null) {
-            walletTransaction.update(TransactionType.CHARGE, amount, postedBalance, WalletTransactionStatus.COMPLETED, walletRef, walletRef);
+            walletTransaction.applyChargeResult(amount, postedBalance, walletRef);
         } else {
             walletTransaction = WalletTransaction.builder()
                     .operationId("payment-" + orderId)

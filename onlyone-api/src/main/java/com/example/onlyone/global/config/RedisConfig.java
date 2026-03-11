@@ -149,7 +149,9 @@ public class RedisConfig {
      */
     @Bean
     public CacheManager cacheManager(RedisConnectionFactory connectionFactory) {
-        // 캐시 전용 ObjectMapper — @class 타입 정보 포함하여 Page 등 복잡 타입 역직렬화 지원
+
+        // --- 캐시 직렬화 설정 ---
+        // @class 타입 정보를 포함하여 Page 등 복잡 타입 역직렬화 지원
         ObjectMapper cacheMapper = new ObjectMapper();
         cacheMapper.registerModule(new JavaTimeModule());
         cacheMapper.disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
@@ -164,32 +166,36 @@ public class RedisConfig {
 
         GenericJackson2JsonRedisSerializer cacheSerializer = new GenericJackson2JsonRedisSerializer(cacheMapper);
 
+        // --- 기본 캐시 TTL 설정 ---
         RedisCacheConfiguration defaultConfig = RedisCacheConfiguration.defaultCacheConfig()
                 .entryTtl(Duration.ofSeconds(10))
                 .serializeKeysWith(RedisSerializationContext.SerializationPair.fromSerializer(new StringRedisSerializer()))
                 .serializeValuesWith(RedisSerializationContext.SerializationPair.fromSerializer(cacheSerializer));
 
+        // --- 도메인별 캐시 TTL 설정 ---
         var cacheConfigurations = new HashMap<String, RedisCacheConfiguration>();
+
         // 검색 — 클럽 데이터는 변경 빈도 낮음
         cacheConfigurations.put("teammatesClubs", defaultConfig.entryTtl(Duration.ofSeconds(120)));
         cacheConfigurations.put("recommendations", defaultConfig.entryTtl(Duration.ofSeconds(120)));
         cacheConfigurations.put("searchInterest", defaultConfig.entryTtl(Duration.ofMinutes(5)));
         cacheConfigurations.put("searchLocation", defaultConfig.entryTtl(Duration.ofMinutes(5)));
         cacheConfigurations.put("myClubs", defaultConfig.entryTtl(Duration.ofSeconds(60)));
-        // 클럽 — 거의 안 변함
+
+        // 클럽
         cacheConfigurations.put("clubDetail", defaultConfig.entryTtl(Duration.ofMinutes(5)));
+
         // 일정
         cacheConfigurations.put("scheduleList", defaultConfig.entryTtl(Duration.ofMinutes(2)));
         cacheConfigurations.put("scheduleDetail", defaultConfig.entryTtl(Duration.ofMinutes(5)));
         cacheConfigurations.put("scheduleUsers", defaultConfig.entryTtl(Duration.ofSeconds(60)));
-        // 정산 — settlementList: @Cacheable 제거 (Page/DTO 역직렬화 문제)
+
         // 지갑
         cacheConfigurations.put("walletTxList", defaultConfig.entryTtl(Duration.ofSeconds(30)));
-        // 피드 — feedList, feedComments: @Cacheable 제거 (Page/List<DTO> 역직렬화 문제)
+
         // 사용자 — CacheEvict 있어서 TTL은 백업용
         cacheConfigurations.put("userMyPage", defaultConfig.entryTtl(Duration.ofMinutes(2)));
         cacheConfigurations.put("userProfile", defaultConfig.entryTtl(Duration.ofMinutes(2)));
-        // 채팅 — chatRooms: @Cacheable 제거 (record + DefaultTyping 역직렬화 문제)
 
         return RedisCacheManager.builder(connectionFactory)
                 .cacheDefaults(defaultConfig)

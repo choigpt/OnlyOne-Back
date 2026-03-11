@@ -1,6 +1,5 @@
 package com.example.onlyone.domain.club.entity;
 
-// import com.example.onlyone.domain.schedule.entity.ScheduleRole;  // TODO: 순환 의존성 방지 - 미사용
 import com.example.onlyone.domain.user.entity.User;
 import com.example.onlyone.common.BaseTimeEntity;
 import jakarta.persistence.*;

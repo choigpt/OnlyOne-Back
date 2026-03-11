@@ -37,10 +37,6 @@ public class Wallet extends BaseTimeEntity {
     @NotNull
     private User user;
 
-//    @Column(name = "balance")
-//    @NotNull
-//    private int balance;
-
     @Column(name = "posted_balance")
     private Long postedBalance;
 

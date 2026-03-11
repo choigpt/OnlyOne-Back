@@ -36,7 +36,7 @@ public class DistributedConnectionRegistry {
 
     public DistributedConnectionRegistry(
             StringRedisTemplate redis,
-            @Value("${app.notification.instance-id:#{T(java.util.UUID).randomUUID().toString().substring(0,8)}}") String instanceId) {
+            @Value("${app.notification.instance-id:#{T(java.util.UUID).randomUUID().toString().replace('-','').substring(0,12)}}") String instanceId) {
         this.redis = redis;
         this.instanceId = instanceId;
         log.info("분산 연결 레지스트리 초기화: instanceId={}", instanceId);

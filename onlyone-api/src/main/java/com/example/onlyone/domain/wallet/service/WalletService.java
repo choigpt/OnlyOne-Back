@@ -16,7 +16,6 @@ import com.example.onlyone.domain.finance.exception.FinanceErrorCode;
 import com.example.onlyone.global.exception.CustomException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.cache.annotation.Cacheable;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
@@ -35,9 +34,8 @@ public class WalletService {
     private final WalletTransactionRepository walletTransactionRepository;
     private final UserService userService;
 
-    /* 사용자 정산/거래 내역 목록 조회 (컨트롤러에서 호출) */
-    @Cacheable(value = "walletTxList",
-            key = "T(org.springframework.security.core.context.SecurityContextHolder).context.authentication.principal.userId + '_' + #filter + '_' + #pageable.pageNumber")
+    // @Cacheable 제거: SecurityContext 기반 캐시 키는 SpEL 의존성이 높아 유지보수 어려움
+    // 개인화 데이터(거래 내역)는 캐시 효용이 낮음
     public WalletTransactionResponseDto getWalletTransactionList(Filter filter, Pageable pageable) {
         if (filter == null) {
             filter = Filter.ALL; // 기본값 처리

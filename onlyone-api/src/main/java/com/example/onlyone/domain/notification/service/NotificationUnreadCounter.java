@@ -31,6 +31,7 @@ public class NotificationUnreadCounter {
             if (cached != null) {
                 return Math.max(0L, Long.parseLong(cached));
             }
+        // Redis 장애(연결 실패, 시리얼라이제이션 오류 등) 시 DB fallback — 광범위 캐치 의도적
         } catch (Exception e) {
             log.warn("Redis 읽기 실패, DB fallback: userId={}", userId, e);
         }
@@ -43,6 +44,7 @@ public class NotificationUnreadCounter {
     public void increment(Long userId) {
         try {
             redis.opsForValue().increment(key(userId));
+        // Redis 장애(연결 실패, 시리얼라이제이션 오류 등) 시 무시 — 광범위 캐치 의도적
         } catch (Exception e) {
             log.warn("Redis 카운터 증가 실패: userId={}", userId, e);
         }
@@ -55,6 +57,7 @@ public class NotificationUnreadCounter {
             if (result != null && result < 0) {
                 redis.delete(key);
             }
+        // Redis 장애(연결 실패, 시리얼라이제이션 오류 등) 시 무시 — 광범위 캐치 의도적
         } catch (Exception e) {
             log.warn("Redis 카운터 감소 실패: userId={}", userId, e);
         }
@@ -72,6 +75,7 @@ public class NotificationUnreadCounter {
     private void setQuietly(String key, String value) {
         try {
             redis.opsForValue().set(key, value, CACHE_TTL);
+        // Redis 장애(연결 실패, 시리얼라이제이션 오류 등) 시 무시 — 광범위 캐치 의도적
         } catch (Exception e) {
             log.warn("Redis 캐시 저장 실패: key={}", key, e);
         }
