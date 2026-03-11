@@ -4,6 +4,7 @@ import com.example.onlyone.domain.image.dto.request.PresignedUrlRequestDto;
 import com.example.onlyone.domain.image.dto.response.PresignedUrlResponseDto;
 import com.example.onlyone.domain.image.service.ImageService;
 import com.example.onlyone.domain.image.exception.ImageErrorCode;
+import com.example.onlyone.global.filter.JwtTokenParser;
 import com.example.onlyone.global.exception.CustomException;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -31,6 +32,7 @@ class ImageControllerTest {
     @Autowired MockMvc mockMvc;
     @MockitoBean ImageService imageService;
     @MockitoBean JpaMetamodelMappingContext jpaMetamodelMappingContext;
+    @MockitoBean JwtTokenParser jwtTokenParser;
 
     // =========================================================================
     @Nested
@@ -63,8 +65,8 @@ class ImageControllerTest {
         }
 
         @Test
-        @DisplayName("실패: 서비스 예외 → CustomException 전파")
-        void failServiceException() {
+        @DisplayName("실패: 서비스 예외 → 에러 응답 반환")
+        void failServiceException() throws Exception {
             String body = """
               {"fileName": "origin.jpg", "contentType": "image/jpeg", "imageSize": 2048}
             """;
@@ -72,12 +74,12 @@ class ImageControllerTest {
             given(imageService.generatePresignedUrl(anyString(), any(PresignedUrlRequestDto.class)))
                     .willThrow(new CustomException(ImageErrorCode.IMAGE_UPLOAD_FAILED));
 
-            assertThatThrownBy(() ->
-                    mockMvc.perform(post("/api/v1/images/{imageFolderType}/presigned-url", "CHAT")
+            mockMvc.perform(post("/api/v1/images/{imageFolderType}/presigned-url", "CHAT")
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(body)
                             .accept(MediaType.APPLICATION_JSON))
-            ).hasCauseInstanceOf(CustomException.class);
+                    .andExpect(status().is(ImageErrorCode.IMAGE_UPLOAD_FAILED.getStatus()))
+                    .andExpect(jsonPath("$.success").value(false));
         }
     }
 

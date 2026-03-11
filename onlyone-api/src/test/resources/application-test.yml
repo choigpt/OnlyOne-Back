@@ -11,6 +11,9 @@ spring:
     driver-class-name: org.h2.Driver
     username: sa
     password:
+  sql:
+    init:
+      mode: never               # schema.sql은 MySQL 전용 — 테스트에서 비활성화
   jpa:
     hibernate:
       ddl-auto: create-drop     # 테스트마다 스키마 재생성

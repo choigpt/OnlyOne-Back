@@ -2,11 +2,9 @@ package com.example.onlyone.domain.chat.service;
 
 import com.example.onlyone.domain.chat.dto.ChatMessageItemDto;
 import com.example.onlyone.domain.chat.dto.ChatRoomMessageResponse;
-import com.example.onlyone.domain.chat.entity.ChatRoom;
 import com.example.onlyone.domain.chat.port.ChatMessageStoragePort;
 import com.example.onlyone.domain.chat.repository.ChatRoomRepository;
-import com.example.onlyone.domain.club.entity.Club;
-import com.example.onlyone.domain.schedule.entity.Schedule;
+import com.example.onlyone.domain.chat.stream.ChatMessageCache;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -17,6 +15,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 
@@ -33,6 +32,7 @@ class MessageQueryServiceTest {
     @InjectMocks private MessageQueryService messageQueryService;
     @Mock private ChatMessageStoragePort chatMessageStoragePort;
     @Mock private ChatRoomRepository chatRoomRepository;
+    @Mock private ChatMessageCache chatMessageCache;
 
     private ChatMessageItemDto itemDto(Long id, Long chatRoomId, String text) {
         return new ChatMessageItemDto(id, chatRoomId, DEFAULT_USER_ID,
@@ -47,16 +47,14 @@ class MessageQueryServiceTest {
         @Test
         @DisplayName("성공: 초기 로드시 최신 메시지가 반환된다")
         void getChatRoomMessages_initialLoad_success() {
-            Club c = club();
-            ChatRoom chatRoom = clubChatRoom(1L, c);
-
             ChatMessageItemDto item1 = itemDto(1L, 1L, "메시지1");
             ChatMessageItemDto item2 = itemDto(2L, 1L, "메시지2");
             ChatMessageItemDto item3 = itemDto(3L, 1L, "메시지3");
-            // findLatest returns DESC order
             List<ChatMessageItemDto> descItems = new ArrayList<>(List.of(item3, item2, item1));
 
-            given(chatRoomRepository.findByIdWithClub(1L)).willReturn(Optional.of(chatRoom));
+            given(chatRoomRepository.findChatRoomName(1L)).willReturn(Optional.of("테스트모임"));
+            // 캐시 미스 (빈 리스트) → DB fallback
+            given(chatMessageCache.getLatest(eq(1L), anyInt())).willReturn(Collections.emptyList());
             given(chatMessageStoragePort.findLatest(eq(1L), anyInt())).willReturn(descItems);
 
             ChatRoomMessageResponse response = messageQueryService.getChatRoomMessages(1L, 50, null, null);
@@ -73,17 +71,13 @@ class MessageQueryServiceTest {
         @Test
         @DisplayName("성공: 커서 기반 조회시 이전 메시지가 반환된다")
         void getChatRoomMessages_cursorBased_success() {
-            Club c = club();
-            Schedule sch = schedule(1L, "정기모임A", c);
-            ChatRoom chatRoom = scheduleChatRoom(2L, c, 1L, sch);
-
             ChatMessageItemDto item1 = itemDto(1L, 2L, "이전메시지1");
             ChatMessageItemDto item2 = itemDto(2L, 2L, "이전메시지2");
             List<ChatMessageItemDto> descItems = new ArrayList<>(List.of(item2, item1));
 
             LocalDateTime cursorAt = LocalDateTime.of(2025, 7, 29, 12, 0, 0);
 
-            given(chatRoomRepository.findByIdWithClub(2L)).willReturn(Optional.of(chatRoom));
+            given(chatRoomRepository.findChatRoomName(2L)).willReturn(Optional.of("정기모임A"));
             given(chatMessageStoragePort.findOlderThan(eq(2L), eq(cursorAt), eq(5L), anyInt()))
                     .willReturn(descItems);
 
@@ -100,9 +94,6 @@ class MessageQueryServiceTest {
         @Test
         @DisplayName("성공: hasMore가 올바르게 설정된다")
         void getChatRoomMessages_hasMore_true() {
-            Club c = club();
-            ChatRoom chatRoom = clubChatRoom(1L, c);
-
             int size = 2;
             ChatMessageItemDto item1 = itemDto(1L, 1L, "메시지1");
             ChatMessageItemDto item2 = itemDto(2L, 1L, "메시지2");
@@ -110,7 +101,8 @@ class MessageQueryServiceTest {
             // pageSize+1 = 3 items returned → hasMore = true
             List<ChatMessageItemDto> descItems = new ArrayList<>(List.of(item3, item2, item1));
 
-            given(chatRoomRepository.findByIdWithClub(1L)).willReturn(Optional.of(chatRoom));
+            given(chatRoomRepository.findChatRoomName(1L)).willReturn(Optional.of("테스트모임"));
+            given(chatMessageCache.getLatest(eq(1L), anyInt())).willReturn(Collections.emptyList());
             given(chatMessageStoragePort.findLatest(eq(1L), anyInt())).willReturn(descItems);
 
             ChatRoomMessageResponse response = messageQueryService.getChatRoomMessages(1L, size, null, null);

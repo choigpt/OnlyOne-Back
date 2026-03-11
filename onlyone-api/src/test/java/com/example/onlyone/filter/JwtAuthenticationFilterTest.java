@@ -1,6 +1,8 @@
 package com.example.onlyone.filter;
 
 import com.example.onlyone.domain.user.dto.UserPrincipal;
+import com.example.onlyone.domain.user.exception.UserErrorCode;
+import com.example.onlyone.global.exception.GlobalErrorCode;
 import com.example.onlyone.global.filter.JwtAuthenticationFilter;
 import com.example.onlyone.global.filter.JwtTokenParser;
 import io.jsonwebtoken.JwtException;
@@ -15,7 +17,6 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 
-import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.BDDMockito.*;
 
 @ExtendWith(MockitoExtension.class)
@@ -126,8 +127,7 @@ class JwtAuthenticationFilterTest {
 
             filter.doFilter(request, response, filterChain);
 
-            assertThat(response.getStatus()).isEqualTo(401);
-            assertThat(response.getContentAsString()).contains("GLOBAL_401_1");
+            then(jwtTokenParser).should().writeErrorResponse(response, GlobalErrorCode.UNAUTHORIZED);
             then(filterChain).should(never()).doFilter(request, response);
         }
 
@@ -144,8 +144,7 @@ class JwtAuthenticationFilterTest {
 
             filter.doFilter(request, response, filterChain);
 
-            assertThat(response.getStatus()).isEqualTo(401);
-            assertThat(response.getContentAsString()).contains("GLOBAL_401_1");
+            then(jwtTokenParser).should().writeErrorResponse(response, GlobalErrorCode.UNAUTHORIZED);
             then(filterChain).should(never()).doFilter(request, response);
         }
 
@@ -162,8 +161,7 @@ class JwtAuthenticationFilterTest {
 
             filter.doFilter(request, response, filterChain);
 
-            assertThat(response.getStatus()).isEqualTo(403);
-            assertThat(response.getContentAsString()).contains("USER_403_1");
+            then(jwtTokenParser).should().writeErrorResponse(response, UserErrorCode.USER_WITHDRAWN);
             then(filterChain).should(never()).doFilter(request, response);
         }
     }

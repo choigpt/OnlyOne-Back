@@ -3,6 +3,8 @@ package com.example.onlyone.domain.settlement.repository;
 import com.example.onlyone.domain.settlement.entity.Settlement;
 import com.example.onlyone.domain.settlement.entity.TotalStatus;
 import com.example.onlyone.domain.user.entity.User;
+import com.example.onlyone.domain.user.entity.Role;
+import com.example.onlyone.domain.user.entity.Status;
 import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -29,7 +31,13 @@ public class SettlementRepositoryTest {
 
     @BeforeEach
     void setUp() {
-        User user = entityManager.getReference(User.class, 1L);
+        User user = User.builder()
+                .kakaoId(100001L)
+                .nickname("테스트유저")
+                .status(Status.ACTIVE)
+                .role(Role.ROLE_USER)
+                .build();
+        entityManager.persist(user);
 
         holdingSettlement = settlementRepository.save(
                 Settlement.builder()

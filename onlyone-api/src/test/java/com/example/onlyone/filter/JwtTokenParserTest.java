@@ -8,6 +8,8 @@ import org.junit.jupiter.api.*;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+
 import javax.crypto.SecretKey;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
@@ -27,7 +29,7 @@ class JwtTokenParserTest {
 
     @BeforeEach
     void setUp() throws Exception {
-        parser = new JwtTokenParser();
+        parser = new JwtTokenParser(new ObjectMapper());
         signingKey = Keys.hmacShaKeyFor(SECRET.getBytes(StandardCharsets.UTF_8));
 
         // Reflectively set jwtSecret and call init()
@@ -140,7 +142,7 @@ class JwtTokenParserTest {
 
             assertThatThrownBy(() -> parser.parseToken(token))
                     .isInstanceOf(IllegalArgumentException.class)
-                    .hasMessageContaining("userId");
+                    .hasMessageContaining("sub");
         }
 
         @Test
@@ -204,7 +206,7 @@ class JwtTokenParserTest {
         @Test
         @DisplayName("secret 길이가 32 미만이면 IllegalStateException이 발생한다")
         void throwsForShortSecret() throws Exception {
-            JwtTokenParser shortParser = new JwtTokenParser();
+            JwtTokenParser shortParser = new JwtTokenParser(new ObjectMapper());
             setField(shortParser, "jwtSecret", "short");
 
             assertThatThrownBy(() -> invokeMethod(shortParser, "init"))

@@ -5,12 +5,14 @@ import com.example.onlyone.domain.club.repository.UserClubRepository;
 import com.example.onlyone.domain.feed.dto.request.FeedCommentRequestDto;
 import com.example.onlyone.domain.feed.entity.Feed;
 import com.example.onlyone.domain.feed.entity.FeedComment;
+import com.example.onlyone.domain.feed.port.FeedStoragePort;
 import com.example.onlyone.domain.feed.repository.FeedCommentRepository;
 import com.example.onlyone.domain.feed.repository.FeedRepository;
 import com.example.onlyone.domain.user.entity.Gender;
 import com.example.onlyone.domain.user.entity.Status;
 import com.example.onlyone.domain.user.entity.User;
 import com.example.onlyone.domain.user.service.UserService;
+import com.example.onlyone.domain.feed.event.FeedEngagementEventPublisher;
 import com.example.onlyone.domain.club.exception.ClubErrorCode;
 import com.example.onlyone.domain.feed.exception.FeedErrorCode;
 import com.example.onlyone.global.exception.CustomException;
@@ -22,11 +24,10 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.transaction.support.TransactionTemplate;
+import org.springframework.context.ApplicationEventPublisher;
 
 import java.time.LocalDate;
 import java.util.Optional;
-import java.util.function.Consumer;
 
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -39,9 +40,12 @@ class FeedCommentServiceTest {
     @InjectMocks private FeedCommentService feedCommentService;
     @Mock private FeedRepository feedRepository;
     @Mock private FeedCommentRepository feedCommentRepository;
+    @Mock private FeedStoragePort feedStoragePort;
     @Mock private UserClubRepository userClubRepository;
     @Mock private UserService userService;
-    @Mock private TransactionTemplate transactionTemplate;
+    @Mock private FeedCacheService cache;
+    @Mock private ApplicationEventPublisher eventPublisher;
+    @Mock private FeedEngagementEventPublisher engagementPublisher;
 
     private User user;
     private User otherUser;
@@ -84,44 +88,32 @@ class FeedCommentServiceTest {
     @DisplayName("댓글 생성")
     class CreateComment {
 
-        @SuppressWarnings("unchecked")
-        private void stubTransactionTemplate() {
-            doAnswer(inv -> {
-                ((Consumer<?>) inv.getArgument(0)).accept(null);
-                return null;
-            }).when(transactionTemplate).executeWithoutResult(any());
-        }
-
         @Test
-        @DisplayName("성공: 댓글이 저장되고 댓글 수가 증가한다")
+        @DisplayName("성공: 댓글이 저장되고 이벤트가 발행된다")
         void success() {
-            // given
-            stubTransactionTemplate();
             FeedCommentRequestDto dto = new FeedCommentRequestDto("새 댓글");
             when(feedRepository.findById(feed.getFeedId())).thenReturn(Optional.of(feed));
             when(userService.getCurrentUser()).thenReturn(user);
             when(userClubRepository.existsByUser_UserIdAndClub_ClubId(user.getUserId(), club.getClubId()))
                     .thenReturn(true);
 
-            // when
             feedCommentService.createComment(club.getClubId(), feed.getFeedId(), dto);
 
-            // then
             verify(feedCommentRepository).save(any(FeedComment.class));
-            verify(feedRepository).incrementCommentCount(feed.getFeedId());
+            verify(eventPublisher).publishEvent(any(FeedCommentService.CommentCountEvent.class));
+            verify(engagementPublisher).publish(any());
+            verify(cache).invalidateDetail(feed.getFeedId());
         }
 
         @Test
         @DisplayName("실패: 모임 미가입이면 CLUB_NOT_JOIN")
         void failNotMember() {
-            // given
             FeedCommentRequestDto dto = new FeedCommentRequestDto("새 댓글");
             when(feedRepository.findById(feed.getFeedId())).thenReturn(Optional.of(feed));
             when(userService.getCurrentUser()).thenReturn(user);
             when(userClubRepository.existsByUser_UserIdAndClub_ClubId(user.getUserId(), club.getClubId()))
                     .thenReturn(false);
 
-            // when & then
             assertThatThrownBy(() -> feedCommentService.createComment(club.getClubId(), feed.getFeedId(), dto))
                     .isInstanceOf(CustomException.class)
                     .extracting("errorCode")
@@ -133,11 +125,9 @@ class FeedCommentServiceTest {
         @Test
         @DisplayName("실패: 피드가 없으면 FEED_NOT_FOUND")
         void failFeedNotFound() {
-            // given
             FeedCommentRequestDto dto = new FeedCommentRequestDto("새 댓글");
             when(feedRepository.findById(999L)).thenReturn(Optional.empty());
 
-            // when & then
             assertThatThrownBy(() -> feedCommentService.createComment(club.getClubId(), 999L, dto))
                     .isInstanceOf(CustomException.class)
                     .extracting("errorCode")
@@ -149,36 +139,24 @@ class FeedCommentServiceTest {
     @DisplayName("댓글 삭제")
     class DeleteComment {
 
-        @SuppressWarnings("unchecked")
-        private void stubTransactionTemplate() {
-            doAnswer(inv -> {
-                ((Consumer<?>) inv.getArgument(0)).accept(null);
-                return null;
-            }).when(transactionTemplate).executeWithoutResult(any());
-        }
-
         @Test
-        @DisplayName("성공: 댓글 작성자가 삭제하면 댓글 수가 감소한다")
+        @DisplayName("성공: 댓글 작성자가 삭제하면 이벤트가 발행된다")
         void successByCommentAuthor() {
-            // given
-            stubTransactionTemplate();
             when(feedRepository.findById(feed.getFeedId())).thenReturn(Optional.of(feed));
             when(feedCommentRepository.findById(comment.getFeedCommentId())).thenReturn(Optional.of(comment));
             when(userService.getCurrentUserId()).thenReturn(user.getUserId());
 
-            // when
             feedCommentService.deleteComment(club.getClubId(), feed.getFeedId(), comment.getFeedCommentId());
 
-            // then
             verify(feedCommentRepository).delete(comment);
-            verify(feedRepository).decrementCommentCount(feed.getFeedId());
+            verify(eventPublisher).publishEvent(any(FeedCommentService.CommentCountEvent.class));
+            verify(engagementPublisher).publish(any());
+            verify(cache).invalidateDetail(feed.getFeedId());
         }
 
         @Test
         @DisplayName("성공: 피드 작성자도 댓글을 삭제할 수 있다")
         void successByFeedAuthor() {
-            // given
-            stubTransactionTemplate();
             FeedComment otherComment = FeedComment.builder()
                     .feedCommentId(2L).content("다른 사람 댓글")
                     .feed(feed).user(otherUser)
@@ -188,22 +166,18 @@ class FeedCommentServiceTest {
             when(feedCommentRepository.findById(2L)).thenReturn(Optional.of(otherComment));
             when(userService.getCurrentUserId()).thenReturn(user.getUserId()); // feed owner
 
-            // when
             feedCommentService.deleteComment(club.getClubId(), feed.getFeedId(), 2L);
 
-            // then
             verify(feedCommentRepository).delete(otherComment);
         }
 
         @Test
         @DisplayName("실패: 권한 없는 사용자이면 UNAUTHORIZED_COMMENT_ACCESS")
         void failUnauthorized() {
-            // given
             when(feedRepository.findById(feed.getFeedId())).thenReturn(Optional.of(feed));
             when(feedCommentRepository.findById(comment.getFeedCommentId())).thenReturn(Optional.of(comment));
-            when(userService.getCurrentUserId()).thenReturn(otherUser.getUserId()); // neither comment author nor feed author
+            when(userService.getCurrentUserId()).thenReturn(otherUser.getUserId());
 
-            // when & then
             assertThatThrownBy(() ->
                     feedCommentService.deleteComment(club.getClubId(), feed.getFeedId(), comment.getFeedCommentId()))
                     .isInstanceOf(CustomException.class)

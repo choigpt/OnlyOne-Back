@@ -71,7 +71,8 @@ class ChatWebSocketControllerTest {
                     eq(chatRoomId), eq(USER_ID), eq("인증유저"),
                     eq(authenticatedUser.getProfileImage()), eq("안녕하세요!"));
             then(asyncMessageService).should()
-                    .saveMessageAsync(eq(chatRoomId), eq(USER_ID), eq("안녕하세요!"));
+                    .saveMessageAsync(eq(chatRoomId), eq(USER_ID), eq("인증유저"),
+                            eq(authenticatedUser.getProfileImage()), eq("안녕하세요!"));
         }
 
         @Test
@@ -88,7 +89,8 @@ class ChatWebSocketControllerTest {
             controller.sendMessage(chatRoomId, request, accessor);
 
             then(asyncMessageService).should()
-                    .saveMessageAsync(eq(chatRoomId), eq(USER_ID), eq("테스트 메시지"));
+                    .saveMessageAsync(eq(chatRoomId), eq(USER_ID), eq("인증유저"),
+                            eq(authenticatedUser.getProfileImage()), eq("테스트 메시지"));
         }
 
         @Test
@@ -109,7 +111,8 @@ class ChatWebSocketControllerTest {
                     eq(authenticatedUser.getProfileImage()),
                     eq("IMAGE::https://cdn.example.com/img.jpg"));
             then(asyncMessageService).should()
-                    .saveMessageAsync(eq(chatRoomId), eq(USER_ID), eq("IMAGE::https://cdn.example.com/img.jpg"));
+                    .saveMessageAsync(eq(chatRoomId), eq(USER_ID), eq("인증유저"),
+                            eq(authenticatedUser.getProfileImage()), eq("IMAGE::https://cdn.example.com/img.jpg"));
         }
 
         @Test

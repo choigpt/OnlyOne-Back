@@ -3,6 +3,7 @@ package com.example.onlyone.domain.feed.service;
 import com.example.onlyone.domain.club.repository.ClubRepository;
 import com.example.onlyone.domain.feed.repository.FeedRepository;
 import com.example.onlyone.domain.user.service.UserService;
+import com.example.onlyone.domain.feed.event.FeedEngagementEventPublisher;
 import com.example.onlyone.domain.club.exception.ClubErrorCode;
 import com.example.onlyone.domain.feed.exception.FeedErrorCode;
 import com.example.onlyone.global.exception.CustomException;
@@ -40,6 +41,7 @@ class FeedLikeServiceTest {
     @Mock private StringRedisTemplate redis;
     @Mock private ValueOperations<String, String> valueOps;
     @Mock private Clock clock;
+    @Mock private FeedEngagementEventPublisher engagementPublisher;
 
     private static final long USER_ID = 1L;
 

@@ -5,11 +5,10 @@ import com.example.onlyone.domain.chat.dto.ChatRoomResponse;
 import com.example.onlyone.domain.chat.entity.ChatRoom;
 import com.example.onlyone.domain.chat.port.ChatMessageStoragePort;
 import com.example.onlyone.domain.chat.repository.ChatRoomRepository;
+import com.example.onlyone.domain.chat.stream.ChatRoomListCache;
 import com.example.onlyone.domain.club.entity.Club;
-import com.example.onlyone.domain.club.repository.ClubRepository;
 import com.example.onlyone.domain.club.repository.UserClubRepository;
 import com.example.onlyone.domain.schedule.entity.Schedule;
-import com.example.onlyone.domain.user.entity.User;
 import com.example.onlyone.domain.user.service.UserService;
 import com.example.onlyone.domain.club.exception.ClubErrorCode;
 import com.example.onlyone.global.exception.CustomException;
@@ -23,10 +22,13 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 
 import static com.example.onlyone.domain.chat.fixture.ChatFixtures.*;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.catchThrowable;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 
 @ExtendWith(MockitoExtension.class)
@@ -36,9 +38,9 @@ class ChatRoomQueryServiceTest {
     @InjectMocks private ChatRoomQueryService chatRoomQueryService;
     @Mock private ChatRoomRepository chatRoomRepository;
     @Mock private ChatMessageStoragePort chatMessageStoragePort;
-    @Mock private ClubRepository clubRepository;
     @Mock private UserClubRepository userClubRepository;
     @Mock private UserService userService;
+    @Mock private ChatRoomListCache chatRoomListCache;
 
     @Nested
     @DisplayName("모임 채팅방 목록 조회")
@@ -48,7 +50,6 @@ class ChatRoomQueryServiceTest {
         @DisplayName("성공: 사용자가 참여한 채팅방 목록이 반환된다")
         void success() {
             Long clubId = 10L, userId = 1L;
-            User u = user(userId, 1001L, "유저A");
             Club c = club(clubId, "모임A");
 
             ChatRoom clubRoom = clubChatRoom(101L, c);
@@ -56,7 +57,7 @@ class ChatRoomQueryServiceTest {
             ChatRoom scheduleRoom = scheduleChatRoom(102L, c, 20L, sch);
 
             given(userService.getCurrentUserId()).willReturn(userId);
-            given(clubRepository.existsById(clubId)).willReturn(true);
+            given(chatRoomListCache.get(userId, clubId)).willReturn(Optional.empty());
             given(userClubRepository.existsByUser_UserIdAndClub_ClubId(userId, clubId)).willReturn(true);
             given(chatRoomRepository.findChatRoomsByUserIdAndClubId(userId, clubId))
                     .willReturn(List.of(clubRoom, scheduleRoom));
@@ -76,26 +77,12 @@ class ChatRoomQueryServiceTest {
         }
 
         @Test
-        @DisplayName("실패: 모임이 없으면 CLUB_NOT_FOUND")
-        void failClubNotFound() {
-            Long clubId = 10L, userId = 1L;
-
-            given(userService.getCurrentUserId()).willReturn(userId);
-            given(clubRepository.existsById(clubId)).willReturn(false);
-
-            Throwable thrown = catchThrowable(() -> chatRoomQueryService.getChatRoomsUserJoinedInClub(clubId));
-
-            assertThat(thrown).isInstanceOf(CustomException.class);
-            assertThat(((CustomException) thrown).getErrorCode()).isEqualTo(ClubErrorCode.CLUB_NOT_FOUND);
-        }
-
-        @Test
         @DisplayName("실패: 모임 미가입이면 CLUB_NOT_JOIN")
         void failClubNotJoin() {
             Long clubId = 10L, userId = 1L;
 
             given(userService.getCurrentUserId()).willReturn(userId);
-            given(clubRepository.existsById(clubId)).willReturn(true);
+            given(chatRoomListCache.get(userId, clubId)).willReturn(Optional.empty());
             given(userClubRepository.existsByUser_UserIdAndClub_ClubId(userId, clubId)).willReturn(false);
 
             Throwable thrown = catchThrowable(() -> chatRoomQueryService.getChatRoomsUserJoinedInClub(clubId));

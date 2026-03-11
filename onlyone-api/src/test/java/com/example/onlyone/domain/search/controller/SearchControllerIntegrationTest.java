@@ -3,6 +3,7 @@ package com.example.onlyone.domain.search.controller;
 import com.example.onlyone.domain.search.dto.response.ClubResponseDto;
 import com.example.onlyone.domain.search.service.SearchService;
 import com.example.onlyone.domain.user.repository.UserRepository;
+import com.example.onlyone.global.filter.JwtTokenParser;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -35,6 +36,7 @@ public class SearchControllerIntegrationTest {
     @MockitoBean private SearchService searchService;
     @MockitoBean private UserRepository userRepository;
     @MockitoBean private JpaMetamodelMappingContext jpaMetamodelMappingContext;
+    @MockitoBean private JwtTokenParser jwtTokenParser;
 
     private ClubResponseDto createClub(Long id, String name, String interest, String district) {
         return new ClubResponseDto(id, name, name + " 설명", interest, district, 10L, "image.jpg", false);

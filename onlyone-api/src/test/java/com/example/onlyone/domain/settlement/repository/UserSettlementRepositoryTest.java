@@ -5,6 +5,8 @@ import com.example.onlyone.domain.settlement.entity.Settlement;
 import com.example.onlyone.domain.settlement.entity.SettlementStatus;
 import com.example.onlyone.domain.settlement.entity.TotalStatus;
 import com.example.onlyone.domain.settlement.entity.UserSettlement;
+import com.example.onlyone.domain.user.entity.Role;
+import com.example.onlyone.domain.user.entity.Status;
 import com.example.onlyone.domain.user.entity.User;
 import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.BeforeEach;
@@ -41,9 +43,12 @@ public class UserSettlementRepositoryTest {
 
     @BeforeEach
     void setUp() {
-        alice = entityManager.getReference(User.class, 1L);
-        bob = entityManager.getReference(User.class, 2L);
-        charlie = entityManager.getReference(User.class, 3L);
+        alice = User.builder().kakaoId(100001L).nickname("앨리스").status(Status.ACTIVE).role(Role.ROLE_USER).build();
+        bob = User.builder().kakaoId(100002L).nickname("밥").status(Status.ACTIVE).role(Role.ROLE_USER).build();
+        charlie = User.builder().kakaoId(100003L).nickname("찰리").status(Status.ACTIVE).role(Role.ROLE_USER).build();
+        entityManager.persist(alice);
+        entityManager.persist(bob);
+        entityManager.persist(charlie);
 
         settlement = settlementRepository.save(
                 Settlement.builder()

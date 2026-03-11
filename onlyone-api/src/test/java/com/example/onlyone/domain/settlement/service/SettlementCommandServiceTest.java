@@ -58,10 +58,11 @@ class SettlementCommandServiceTest {
         given(settlementRepository.existsScheduleInClub(SCHEDULE_ID, CLUB_ID)).willReturn(1L);
         given(settlementRepository.findByScheduleId(SCHEDULE_ID)).willReturn(Optional.of(settlement));
         given(settlementRepository.markProcessing(settlement.getSettlementId())).willReturn(1);
+        given(settlementRepository.findById(settlement.getSettlementId())).willReturn(Optional.of(settlement));
         given(userSettlementRepository.findUserIdsBySettlementIdAndStatus(
                 settlement.getSettlementId(), SettlementStatus.HOLD_ACTIVE))
                 .willReturn(List.of(2L, 3L));
-        given(walletRepository.findByUserWithoutLock(leader)).willReturn(Optional.of(wallet));
+        given(walletRepository.findWalletIdByUserId(leader.getUserId())).willReturn(wallet.getWalletId());
 
         // when
         settlementCommandService.automaticSettlement(CLUB_ID, SCHEDULE_ID, COST_PER_USER);
@@ -132,6 +133,7 @@ class SettlementCommandServiceTest {
         given(settlementRepository.existsScheduleInClub(SCHEDULE_ID, CLUB_ID)).willReturn(1L);
         given(settlementRepository.findByScheduleId(SCHEDULE_ID)).willReturn(Optional.of(settlement));
         given(settlementRepository.markProcessing(settlement.getSettlementId())).willReturn(1);
+        given(settlementRepository.findById(settlement.getSettlementId())).willReturn(Optional.of(settlement));
         given(userSettlementRepository.findUserIdsBySettlementIdAndStatus(
                 settlement.getSettlementId(), SettlementStatus.HOLD_ACTIVE))
                 .willReturn(List.of(2L, 3L));
@@ -157,6 +159,7 @@ class SettlementCommandServiceTest {
         given(settlementRepository.existsScheduleInClub(SCHEDULE_ID, CLUB_ID)).willReturn(1L);
         given(settlementRepository.findByScheduleId(SCHEDULE_ID)).willReturn(Optional.of(settlement));
         given(settlementRepository.markProcessing(settlement.getSettlementId())).willReturn(1);
+        given(settlementRepository.findById(settlement.getSettlementId())).willReturn(Optional.of(settlement));
         given(userSettlementRepository.findUserIdsBySettlementIdAndStatus(
                 settlement.getSettlementId(), SettlementStatus.HOLD_ACTIVE))
                 .willReturn(List.of());

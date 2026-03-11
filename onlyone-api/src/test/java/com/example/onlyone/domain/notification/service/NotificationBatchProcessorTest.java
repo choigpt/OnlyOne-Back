@@ -1,5 +1,6 @@
 package com.example.onlyone.domain.notification.service;
 
+import com.example.onlyone.domain.notification.config.NotificationProperties;
 import com.example.onlyone.domain.notification.dto.response.NotificationSseDto;
 import com.example.onlyone.domain.notification.entity.Notification;
 import com.example.onlyone.domain.notification.event.NotificationCreatedEvent;
@@ -38,12 +39,14 @@ class NotificationBatchProcessorTest {
     @Mock private NotificationStoragePort storagePort;
     @Mock private NotificationDeliveryPort deliveryPort;
     @Mock private TransactionTemplate transactionTemplate;
+    @Mock private NotificationUndeliveredCache undeliveredCache;
+    @Mock private NotificationProperties properties;
 
     @BeforeEach
     void setUp() {
-        ReflectionTestUtils.setField(batchProcessor, "batchSize", 10);
-        ReflectionTestUtils.setField(batchProcessor, "maxQueueSizePerUser", 100);
-        ReflectionTestUtils.setField(batchProcessor, "batchTimeoutSeconds", 5);
+        lenient().when(properties.getBatchSize()).thenReturn(10);
+        lenient().when(properties.getMaxQueueSizePerUser()).thenReturn(100);
+        lenient().when(properties.getBatchTimeoutSeconds()).thenReturn(5);
     }
 
     @SuppressWarnings("unchecked")

@@ -10,9 +10,11 @@ import com.example.onlyone.domain.user.entity.Gender;
 import com.example.onlyone.domain.user.entity.Status;
 import com.example.onlyone.domain.user.entity.User;
 import com.example.onlyone.domain.user.service.UserService;
+import com.example.onlyone.domain.feed.event.FeedEngagementEventPublisher;
 import com.example.onlyone.domain.club.exception.ClubErrorCode;
 import com.example.onlyone.domain.feed.exception.FeedErrorCode;
 import com.example.onlyone.global.exception.CustomException;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -40,6 +42,8 @@ class FeedCommandServiceTest {
     @Mock private FeedRepository feedRepository;
     @Mock private UserService userService;
     @Mock private UserClubRepository userClubRepository;
+    @Mock private FeedCacheService cache;
+    @Mock private FeedEngagementEventPublisher engagementPublisher;
 
     private User user;
     private User otherUser;
@@ -89,7 +93,12 @@ class FeedCommandServiceTest {
             when(userService.getCurrentUser()).thenReturn(user);
             when(userClubRepository.existsByUser_UserIdAndClub_ClubId(user.getUserId(), club.getClubId()))
                     .thenReturn(true);
-            when(feedRepository.save(any(Feed.class))).thenAnswer(invocation -> invocation.getArgument(0));
+            when(feedRepository.save(any(Feed.class))).thenAnswer(invocation -> {
+                Feed saved = invocation.getArgument(0);
+                // 테스트용: feedId 부여 (DB auto-increment 시뮬레이션)
+                ReflectionTestUtils.setField(saved, "feedId", 99L);
+                return saved;
+            });
 
             feedCommandService.createFeed(club.getClubId(), requestDto);
 

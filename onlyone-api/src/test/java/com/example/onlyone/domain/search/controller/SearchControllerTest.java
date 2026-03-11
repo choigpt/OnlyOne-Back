@@ -3,6 +3,7 @@ package com.example.onlyone.domain.search.controller;
 import com.example.onlyone.domain.search.dto.response.ClubResponseDto;
 import com.example.onlyone.domain.search.service.SearchService;
 import com.example.onlyone.domain.user.repository.UserRepository;
+import com.example.onlyone.global.filter.JwtTokenParser;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -31,6 +32,7 @@ class SearchControllerTest {
     @MockitoBean private SearchService searchService;
     @MockitoBean private UserRepository userRepository;
     @MockitoBean private JpaMetamodelMappingContext jpaMetamodelMappingContext;
+    @MockitoBean private JwtTokenParser jwtTokenParser;
 
     // 헬퍼 메서드: 테스트 데이터 생성 중복 제거
     private ClubResponseDto createClub(Long clubId, String name, String description, String interest, String district, Long memberCount, boolean isJoined) {
