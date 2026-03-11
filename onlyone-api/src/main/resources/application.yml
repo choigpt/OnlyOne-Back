@@ -349,13 +349,13 @@ spring:
       host: ${INFRA_HOST}
       port: 6379
       password: ${REDIS_PASSWORD:}
-      timeout: 5000
+      timeout: 3000
       lettuce:
         pool:
-          max-active: 128
-          max-idle: 64
-          min-idle: 16
-          max-wait: 3000
+          max-active: 512
+          max-idle: 128
+          min-idle: 32
+          max-wait: 1000
         shutdown-timeout: 2000ms
 
   # Kafka (원격 인프라)
