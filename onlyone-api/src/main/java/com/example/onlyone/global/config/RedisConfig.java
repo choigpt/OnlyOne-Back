@@ -189,8 +189,7 @@ public class RedisConfig {
         // 사용자 — CacheEvict 있어서 TTL은 백업용
         cacheConfigurations.put("userMyPage", defaultConfig.entryTtl(Duration.ofMinutes(2)));
         cacheConfigurations.put("userProfile", defaultConfig.entryTtl(Duration.ofMinutes(2)));
-        // 채팅
-        cacheConfigurations.put("chatRooms", defaultConfig.entryTtl(Duration.ofSeconds(60)));
+        // 채팅 — chatRooms: @Cacheable 제거 (record + DefaultTyping 역직렬화 문제)
 
         return RedisCacheManager.builder(connectionFactory)
                 .cacheDefaults(defaultConfig)

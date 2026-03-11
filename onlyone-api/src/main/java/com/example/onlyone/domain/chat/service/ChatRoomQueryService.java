@@ -10,7 +10,6 @@ import com.example.onlyone.domain.user.service.UserService;
 import com.example.onlyone.domain.club.exception.ClubErrorCode;
 import com.example.onlyone.global.exception.CustomException;
 import lombok.RequiredArgsConstructor;
-import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -30,8 +29,6 @@ public class ChatRoomQueryService {
     private final UserClubRepository userClubRepository;
     private final UserService userService;
 
-    @Cacheable(value = "chatRooms",
-            key = "T(org.springframework.security.core.context.SecurityContextHolder).context.authentication.principal.userId + '_' + #clubId")
     public List<ChatRoomResponse> getChatRoomsUserJoinedInClub(Long clubId) {
         Long userId = userService.getCurrentUserId();
 
