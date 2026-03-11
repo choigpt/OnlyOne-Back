@@ -26,6 +26,8 @@ public class SseConnectionManager {
     @Value("${app.notification.max-connections:7000}")
     private int maxConnections;
 
+    private static final long CLEANUP_GRACE_PERIOD_MS = 60_000;
+
     private final ConcurrentHashMap<Long, SseConnection> activeConnections = new ConcurrentHashMap<>();
 
     /** 분산 환경에서만 주입됨 (app.notification.multi-instance=true) */
@@ -45,6 +47,7 @@ public class SseConnectionManager {
                 .userId(userId)
                 .emitter(new SseEmitter(sseTimeoutMillis))
                 .connectionTime(LocalDateTime.now())
+                .timeoutMillis(sseTimeoutMillis)
                 .build();
 
         registerConnectionCallbacks(newConnection);
@@ -130,7 +133,7 @@ public class SseConnectionManager {
                 return;
             }
 
-            LocalDateTime cutoffTime = LocalDateTime.now().minusSeconds((sseTimeoutMillis + 60000) / 1000);
+            LocalDateTime cutoffTime = LocalDateTime.now().minusSeconds((sseTimeoutMillis + CLEANUP_GRACE_PERIOD_MS) / 1000);
             AtomicInteger cleaned = new AtomicInteger(0);
 
             activeConnections.forEach((userId, connection) -> {

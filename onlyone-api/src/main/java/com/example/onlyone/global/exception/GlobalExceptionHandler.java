@@ -72,9 +72,9 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(NoHandlerFoundException.class)
     public ResponseEntity<CommonResponse<ErrorResponse>> handleNoHandlerFoundException(
             NoHandlerFoundException e, HttpServletRequest request) {
-        logError(request, INTERNAL_SERVER_ERROR, e);
-        return errorResponse(404, INTERNAL_SERVER_ERROR.name(),
-                "요청한 리소스를 찾을 수 없습니다: " + e.getRequestURL());
+        logError(request, RESOURCE_NOT_FOUND, e);
+        return errorResponse(404, RESOURCE_NOT_FOUND.name(),
+                RESOURCE_NOT_FOUND.getMessage() + ": " + e.getRequestURL());
     }
 
     @ExceptionHandler(HttpMessageNotReadableException.class)

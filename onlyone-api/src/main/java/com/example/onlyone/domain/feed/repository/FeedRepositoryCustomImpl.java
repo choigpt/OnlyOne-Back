@@ -54,7 +54,7 @@ public class FeedRepositoryCustomImpl implements FeedRepositoryCustom {
                 .where(
                         feed.club.clubId.eq(clubId),
                         feed.parentFeedId.isNull())
-                .orderBy(feed.createdAt.desc())
+                .orderBy(feed.feedId.desc())
                 .offset(pageable.getOffset())
                 .limit(pageable.getPageSize())
                 .fetch();

@@ -121,15 +121,19 @@ public class Feed extends BaseTimeEntity {
     @Column(name = "deleted_at")
     private LocalDateTime deletedAt;
 
+    /**
+     * 삭제되지 않은 리피드의 parent_feed_id를 저장하는 가상 컬럼.
+     * uq_refeed_once_alive 유니크 제약조건과 함께 동일 클럽 내 중복 리피드를 방지.
+     * deleted=true이면 NULL → 유니크 제약 해제.
+     */
     @Column(
             name = "active_parent",
             insertable = false, updatable = false,
             columnDefinition =
                     "BIGINT GENERATED ALWAYS AS (" +
-                            "  CASE WHEN deleted = 0 AND parent_feed_id IS NOT NULL THEN parent_feed_id " +
+                            "  CASE WHEN deleted = FALSE AND parent_feed_id IS NOT NULL THEN parent_feed_id " +
                             "       ELSE NULL " +
-                            "  END" +
-                            ") STORED"
+                            "  END)"
     )
     private Long activeParent;
 }

@@ -78,7 +78,7 @@ public class RateLimitFilter extends OncePerRequestFilter {
         long windowMs = isAuthPath ? AUTH_WINDOW_MS : GENERAL_WINDOW_MS;
         int maxRequests = isAuthPath ? authRequestsPer30s : requestsPerMinute;
 
-        if (isRateLimited(key, windowMs, maxRequests)) {
+        if (checkAndRecordRequest(key, windowMs, maxRequests)) {
             log.warn("Rate limit exceeded for IP: {}, path: {}", clientIp, path);
             response.setStatus(HttpStatus.TOO_MANY_REQUESTS.value());
             response.setContentType(MediaType.APPLICATION_JSON_VALUE);
@@ -89,22 +89,20 @@ public class RateLimitFilter extends OncePerRequestFilter {
         filterChain.doFilter(request, response);
     }
 
-    private boolean isRateLimited(String key, long windowMs, int maxRequests) {
+    private boolean checkAndRecordRequest(String key, long windowMs, int maxRequests) {
         long now = System.currentTimeMillis();
         Deque<Long> timestamps = requestCounts.computeIfAbsent(key, k -> new ConcurrentLinkedDeque<>());
 
-        // Remove expired entries
-        while (!timestamps.isEmpty() && now - timestamps.peekFirst() > windowMs) {
-            timestamps.pollFirst();
-        }
+        synchronized (timestamps) {
+            // Remove expired entries
+            while (!timestamps.isEmpty() && now - timestamps.peekFirst() > windowMs) {
+                timestamps.pollFirst();
+            }
 
-        // Atomically check-then-act: add first, then check if over limit
-        timestamps.addLast(now);
-        if (timestamps.size() > maxRequests) {
-            return true;
+            // Atomically check-then-act: add first, then check if over limit
+            timestamps.addLast(now);
+            return timestamps.size() > maxRequests;
         }
-
-        return false;
     }
 
     private void evictStaleEntries() {
@@ -113,14 +111,16 @@ public class RateLimitFilter extends OncePerRequestFilter {
         for (var it = requestCounts.entrySet().iterator(); it.hasNext(); ) {
             var entry = it.next();
             Deque<Long> deque = entry.getValue();
-            // 만료된 타임스탬프 정리
-            while (!deque.isEmpty() && now - deque.peekFirst() > GENERAL_WINDOW_MS) {
-                deque.pollFirst();
-            }
-            // 빈 deque 엔트리 제거
-            if (deque.isEmpty()) {
-                it.remove();
-                removed++;
+            synchronized (deque) {
+                // 만료된 타임스탬프 정리
+                while (!deque.isEmpty() && now - deque.peekFirst() > GENERAL_WINDOW_MS) {
+                    deque.pollFirst();
+                }
+                // 빈 deque 엔트리 제거
+                if (deque.isEmpty()) {
+                    it.remove();
+                    removed++;
+                }
             }
         }
         if (removed > 0) {

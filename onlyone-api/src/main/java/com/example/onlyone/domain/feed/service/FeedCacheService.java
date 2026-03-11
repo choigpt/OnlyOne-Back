@@ -58,8 +58,11 @@ public class FeedCacheService {
                                 Long.parseLong(parts[2]));
                     })
                     .toList();
+        } catch (IllegalArgumentException e) {
+            log.debug("pass1 캐시 파싱 실패: {}", e.getMessage());
+            return null;
         } catch (Exception e) {
-            log.debug("pass1 캐시 조회 실패: {}", e.getMessage());
+            log.warn("pass1 캐시 조회 중 예상치 못한 오류: {}", e.getMessage());
             return null;
         }
     }
@@ -72,7 +75,7 @@ public class FeedCacheService {
                     .collect(Collectors.joining(","));
             redis.opsForValue().set(key, value, PASS1_CACHE_TTL);
         } catch (Exception e) {
-            log.debug("pass1 캐시 저장 실패: {}", e.getMessage());
+            log.warn("pass1 캐시 저장 중 예상치 못한 오류: {}", e.getMessage());
         }
     }
 
@@ -145,9 +148,7 @@ public class FeedCacheService {
     }
 
     private void invalidateListCaches(String prefix, Long userId) {
-        String resultPrefix = prefix + userId + ":";
-        resultCache.keySet().removeIf(k -> k.startsWith(resultPrefix));
-
+        // Redis 먼저 삭제 → in-memory 삭제 순서로 stale read window 최소화
         String pass1Prefix = prefix + "p1:" + userId + ":";
         List<String> keysToDelete = new ArrayList<>();
         for (int page = 0; page <= MAX_CACHEABLE_PAGE; page++) {
@@ -158,6 +159,9 @@ public class FeedCacheService {
         } catch (Exception e) {
             log.debug("pass1 캐시 삭제 실패: {}", e.getMessage());
         }
+
+        String resultPrefix = prefix + userId + ":";
+        resultCache.keySet().removeIf(k -> k.startsWith(resultPrefix));
     }
 
     // ── Eviction ──
