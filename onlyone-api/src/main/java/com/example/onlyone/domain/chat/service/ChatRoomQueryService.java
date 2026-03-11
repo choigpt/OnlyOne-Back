@@ -5,6 +5,7 @@ import com.example.onlyone.domain.chat.dto.ChatRoomResponse;
 import com.example.onlyone.domain.chat.entity.ChatRoom;
 import com.example.onlyone.domain.chat.port.ChatMessageStoragePort;
 import com.example.onlyone.domain.chat.repository.ChatRoomRepository;
+import com.example.onlyone.domain.chat.stream.ChatRoomListCache;
 import com.example.onlyone.domain.club.repository.UserClubRepository;
 import com.example.onlyone.domain.user.service.UserService;
 import com.example.onlyone.domain.club.exception.ClubErrorCode;
@@ -16,6 +17,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -28,22 +30,31 @@ public class ChatRoomQueryService {
     private final ChatMessageStoragePort chatMessageStoragePort;
     private final UserClubRepository userClubRepository;
     private final UserService userService;
+    private final ChatRoomListCache chatRoomListCache;
 
     public List<ChatRoomResponse> getChatRoomsUserJoinedInClub(Long clubId) {
         Long userId = userService.getCurrentUserId();
 
-        // existsById + existsBy 2쿼리 → userClub 단일 조회로 통합
+        // Redis 캐시 우선 조회 (DB 3개 쿼리 스킵)
+        Optional<List<ChatRoomResponse>> cached = chatRoomListCache.get(userId, clubId);
+        if (cached.isPresent()) {
+            return cached.get();
+        }
+
         if (!userClubRepository.existsByUser_UserIdAndClub_ClubId(userId, clubId)) {
-            // club 미존재 or 미가입 모두 동일 에러 (별도 existsById 쿼리 제거)
             throw new CustomException(ClubErrorCode.CLUB_NOT_JOIN);
         }
 
         List<ChatRoom> chatRooms = chatRoomRepository.findChatRoomsByUserIdAndClubId(userId, clubId);
         Map<Long, ChatMessageItemDto> lastMessageMap = findLastMessages(chatRooms);
 
-        return chatRooms.stream()
+        List<ChatRoomResponse> result = chatRooms.stream()
                 .map(room -> ChatRoomResponse.from(room, lastMessageMap.get(room.getChatRoomId())))
                 .toList();
+
+        // 캐시에 저장 (30초 TTL)
+        chatRoomListCache.put(userId, clubId, result);
+        return result;
     }
 
     private Map<Long, ChatMessageItemDto> findLastMessages(List<ChatRoom> chatRooms) {

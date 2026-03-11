@@ -5,7 +5,6 @@ import com.example.onlyone.domain.chat.dto.ChatMessageResponse;
 import com.example.onlyone.domain.chat.dto.ChatRoomMessageResponse;
 import com.example.onlyone.domain.chat.service.MessageCommandService;
 import com.example.onlyone.domain.chat.service.MessageQueryService;
-import com.example.onlyone.domain.user.entity.User;
 import com.example.onlyone.domain.user.service.UserService;
 import com.example.onlyone.global.common.CommonResponse;
 import io.swagger.v3.oas.annotations.Operation;
@@ -37,17 +36,17 @@ public class MessageRestController {
     public ResponseEntity<CommonResponse<ChatMessageResponse>> sendMessage(
             @PathVariable Long chatRoomId,
             @RequestBody ChatMessageRequest request) {
-        User user = userService.getCurrentUser();
+        Long userId = userService.getCurrentUserId();
         ChatMessageResponse response =
-                messageCommandService.sendAndPublish(chatRoomId, user.getUserId(), request.text());
+                messageCommandService.sendAndPublish(chatRoomId, userId, request.text());
         return ResponseEntity.ok(CommonResponse.success(response));
     }
 
     @Operation(summary = "채팅 메시지 삭제")
     @DeleteMapping("/messages/{messageId}")
     public ResponseEntity<Void> deleteMessage(@PathVariable Long messageId) {
-        User user = userService.getCurrentUser();
-        messageCommandService.deleteMessage(messageId, user.getUserId());
+        Long userId = userService.getCurrentUserId();
+        messageCommandService.deleteMessage(messageId, userId);
         return ResponseEntity.noContent().build();
     }
 

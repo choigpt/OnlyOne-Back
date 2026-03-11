@@ -5,6 +5,7 @@ import com.example.onlyone.domain.chat.dto.ChatMessageResponse;
 import com.example.onlyone.domain.chat.port.ChatMessageStoragePort;
 import com.example.onlyone.domain.chat.repository.UserChatRoomRepository;
 import com.example.onlyone.domain.chat.stream.ChatMessageCache;
+import com.example.onlyone.domain.chat.stream.ChatMembershipCache;
 import com.example.onlyone.domain.chat.util.MessageUtils;
 import com.example.onlyone.domain.chat.exception.ChatErrorCode;
 import com.example.onlyone.global.exception.CustomException;
@@ -26,17 +27,35 @@ public class MessageCommandService {
     private final UserChatRoomRepository userChatRoomRepository;
     private final ChatPublisher chatPublisher;
     private final ChatMessageCache chatMessageCache;
+    private final ChatMembershipCache membershipCache;
+    private final AsyncMessageService asyncMessageService;
     private final ObjectMapper objectMapper;
 
     private static final int MAX_TEXT_LENGTH = 2000;
 
     /**
-     * REST 경로: 메시지 저장 + Redis Pub/Sub 발행
-     * Redis publish는 TX 밖에서 수행 — DB 커넥션 장기 점유 방지
+     * REST 경로: 멤버십 캐시 + Redis Streams 비동기 저장 + 즉시 응답.
+     * DB 커넥션 사용 0 (캐시 히트 시).
      */
     public ChatMessageResponse sendAndPublish(Long chatRoomId, Long userId, String text) {
-        ChatMessageResponse response = saveMessage(chatRoomId, userId, text);
+        if (text == null || text.isBlank()) throw new CustomException(ChatErrorCode.MESSAGE_BAD_REQUEST);
+
+        // 멤버십 + 유저정보: Redis 캐시 우선 (DB fallback + 캐시 저장)
+        ChatMembershipCache.UserInfo userInfo = membershipCache.getMemberInfo(userId, chatRoomId)
+                .orElseThrow(() -> new CustomException(ChatErrorCode.FORBIDDEN_CHAT_ROOM));
+
+        String storedText = resolveStoredText(text);
+        LocalDateTime now = LocalDateTime.now();
+
+        // Redis Pub/Sub 즉시 발행
+        ChatMessageResponse response = ChatMessageResponse.forWebSocket(
+                chatRoomId, userId, userInfo.nickname(), userInfo.profileImage(), storedText);
         publish(chatRoomId, response);
+
+        // Redis Streams 비동기 DB 저장 + 읽기 캐시 반영
+        asyncMessageService.saveMessageAsync(chatRoomId, userId,
+                userInfo.nickname(), userInfo.profileImage(), storedText);
+
         return response;
     }
 
@@ -49,8 +68,7 @@ public class MessageCommandService {
                 chatRoomId, senderId, nickname, profileImage, rawText);
         publish(chatRoomId, response);
 
-        // 읽기 캐시에 즉시 반영
-        chatMessageCache.addMessage(chatRoomId, senderId, nickname, profileImage, rawText, java.time.LocalDateTime.now());
+        chatMessageCache.addMessage(chatRoomId, senderId, nickname, profileImage, rawText, LocalDateTime.now());
     }
 
     /**
@@ -60,7 +78,6 @@ public class MessageCommandService {
     public ChatMessageResponse saveMessage(Long chatRoomId, Long userId, String text) {
         if (text == null || text.isBlank()) throw new CustomException(ChatErrorCode.MESSAGE_BAD_REQUEST);
 
-        // existsBy 별도 조회 제거 → 단일 쿼리로 user + 채팅방 참여 동시 검증
         UserChatRoomRepository.UserInfoProjection userInfo = userChatRoomRepository
                 .findUserInfoIfMember(userId, chatRoomId)
                 .orElseThrow(() -> new CustomException(ChatErrorCode.FORBIDDEN_CHAT_ROOM));
