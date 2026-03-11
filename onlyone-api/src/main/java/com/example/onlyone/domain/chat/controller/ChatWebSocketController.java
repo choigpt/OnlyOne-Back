@@ -43,7 +43,8 @@ public class ChatWebSocketController {
                 chatRoomId, user.getUserId(), user.getNickname(),
                 user.getProfileImage(), request.text());
 
-        asyncMessageService.saveMessageAsync(chatRoomId, user.getUserId(), request.text());
+        asyncMessageService.saveMessageAsync(chatRoomId, user.getUserId(),
+                user.getNickname(), user.getProfileImage(), request.text());
     }
 
     @MessageExceptionHandler(CustomException.class)

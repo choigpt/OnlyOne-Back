@@ -4,6 +4,7 @@ import com.example.onlyone.domain.chat.dto.ChatMessageItemDto;
 import com.example.onlyone.domain.chat.dto.ChatRoomMessageResponse;
 import com.example.onlyone.domain.chat.port.ChatMessageStoragePort;
 import com.example.onlyone.domain.chat.repository.ChatRoomRepository;
+import com.example.onlyone.domain.chat.stream.ChatMessageCache;
 import com.example.onlyone.domain.chat.exception.ChatErrorCode;
 import com.example.onlyone.global.exception.CustomException;
 import lombok.RequiredArgsConstructor;
@@ -22,6 +23,7 @@ public class MessageQueryService {
 
     private final ChatMessageStoragePort chatMessageStoragePort;
     private final ChatRoomRepository chatRoomRepository;
+    private final ChatMessageCache chatMessageCache;
 
     private static final int DEFAULT_PAGE_SIZE = 30;
     private static final int MAX_PAGE_SIZE = 100;
@@ -33,6 +35,19 @@ public class MessageQueryService {
                 .orElseThrow(() -> new CustomException(ChatErrorCode.CHAT_ROOM_NOT_FOUND));
 
         int pageSize = clampPageSize(size);
+
+        // 커서 없음 = 첫 페이지 → Redis 캐시 우선 조회
+        if (cursorId == null || cursorAt == null) {
+            List<ChatMessageItemDto> cached = chatMessageCache.getLatest(chatRoomId, pageSize + 1);
+            if (cached.size() > pageSize) {
+                // 캐시에 충분한 데이터 있음 → DB 조회 스킵
+                List<ChatMessageItemDto> page = new ArrayList<>(cached.subList(0, pageSize));
+                Collections.reverse(page);
+                return ChatRoomMessageResponse.ofItems(chatRoomId, chatRoomName, page, true);
+            }
+        }
+
+        // 캐시 미스 또는 커서 페이징 → DB fallback
         List<ChatMessageItemDto> slice = new ArrayList<>(fetchSlice(chatRoomId, pageSize, cursorId, cursorAt));
         boolean hasMore = slice.size() > pageSize;
         if (hasMore) slice = new ArrayList<>(slice.subList(0, pageSize));

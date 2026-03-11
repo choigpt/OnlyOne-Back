@@ -1,123 +1,61 @@
 package com.example.onlyone.domain.chat.service;
 
-import com.example.onlyone.domain.chat.entity.ChatRoom;
-import com.example.onlyone.domain.chat.entity.Message;
-import com.example.onlyone.domain.chat.repository.ChatRoomRepository;
-import com.example.onlyone.domain.chat.repository.MessageRepository;
-import com.example.onlyone.domain.user.entity.User;
-import com.example.onlyone.domain.user.repository.UserRepository;
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import jakarta.annotation.PreDestroy;
+import com.example.onlyone.domain.chat.stream.ChatMessageCache;
+import com.example.onlyone.domain.chat.stream.ChatMessageStreamConsumer;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.redis.connection.stream.RecordId;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
-import java.time.Duration;
 import java.time.LocalDateTime;
-import java.util.ArrayList;
-import java.util.List;
+import java.time.format.DateTimeFormatter;
 import java.util.Map;
-import java.util.concurrent.*;
 
 /**
- * 채팅 메시지 비동기 배치 저장.
- * 200ms 윈도우 또는 50건 도달 시 batch INSERT 수행.
- * DB 커넥션 사용 횟수를 1/N로 줄여 HikariCP 경합 감소.
+ * 채팅 메시지 비동기 저장 — Redis Streams 기반.
+ *
+ * DB 커넥션을 사용하지 않고 Redis XADD만 수행 (< 1ms).
+ * 실제 DB 저장은 ChatMessageStreamConsumer가 배치로 처리.
  */
 @Service
 @Slf4j
+@RequiredArgsConstructor
 public class AsyncMessageService {
 
-    private static final int BATCH_SIZE = 50;
-    private static final long FLUSH_INTERVAL_MS = 200;
-    private static final String FAILED_MESSAGES_KEY = "chat:failed-messages";
-    private static final Duration FAILED_MESSAGES_TTL = Duration.ofDays(7);
-
-    private final MessageRepository messageRepository;
-    private final ChatRoomRepository chatRoomRepository;
-    private final UserRepository userRepository;
     private final StringRedisTemplate redisTemplate;
-    private final ObjectMapper objectMapper;
-
-    private final BlockingQueue<PendingMessage> buffer = new LinkedBlockingQueue<>(10_000);
-    private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor(
-            r -> { Thread t = new Thread(r, "chat-batch-flush"); t.setDaemon(true); return t; });
-
-    public AsyncMessageService(MessageRepository messageRepository,
-                                ChatRoomRepository chatRoomRepository,
-                                UserRepository userRepository,
-                                StringRedisTemplate redisTemplate,
-                                ObjectMapper objectMapper) {
-        this.messageRepository = messageRepository;
-        this.chatRoomRepository = chatRoomRepository;
-        this.userRepository = userRepository;
-        this.redisTemplate = redisTemplate;
-        this.objectMapper = objectMapper;
-
-        scheduler.scheduleWithFixedDelay(this::flushBuffer, FLUSH_INTERVAL_MS, FLUSH_INTERVAL_MS, TimeUnit.MILLISECONDS);
-    }
+    private final ChatMessageCache chatMessageCache;
 
     public void saveMessageAsync(Long chatRoomId, Long userId, String text) {
-        PendingMessage msg = new PendingMessage(chatRoomId, userId, text, LocalDateTime.now());
-        if (!buffer.offer(msg)) {
-            log.warn("채팅 배치 버퍼 가득 참, 즉시 폴백 저장: chatRoomId={}, userId={}", chatRoomId, userId);
-            storeToRedis(msg);
-        }
+        saveMessageAsync(chatRoomId, userId, null, null, text);
     }
 
-    private void flushBuffer() {
-        List<PendingMessage> batch = new ArrayList<>(BATCH_SIZE);
-        buffer.drainTo(batch, BATCH_SIZE);
-        if (batch.isEmpty()) return;
+    public void saveMessageAsync(Long chatRoomId, Long userId,
+                                  String nickname, String profileImage, String text) {
+        LocalDateTime now = LocalDateTime.now();
 
+        // 1. Redis Streams XADD (DB 저장 버퍼)
         try {
-            saveBatch(batch);
+            RecordId id = redisTemplate.opsForStream().add(
+                    ChatMessageStreamConsumer.STREAM,
+                    Map.of(
+                            "roomId", String.valueOf(chatRoomId),
+                            "userId", String.valueOf(userId),
+                            "text", text,
+                            "sentAt", now.format(DateTimeFormatter.ISO_LOCAL_DATE_TIME)
+                    ));
+            log.debug("[chat-async] XADD success: stream={}, id={}", ChatMessageStreamConsumer.STREAM, id);
         } catch (Exception e) {
-            log.error("배치 저장 실패 ({}건), Redis 폴백", batch.size(), e);
-            batch.forEach(this::storeToRedis);
+            log.error("[chat-async] XADD failed, message may be lost: roomId={}, userId={}", chatRoomId, userId, e);
+        }
+
+        // 2. 읽기 캐시에 즉시 반영 (nickname이 있을 때만)
+        if (nickname != null) {
+            try {
+                chatMessageCache.addMessage(chatRoomId, userId, nickname, profileImage, text, now);
+            } catch (Exception e) {
+                log.warn("[chat-async] cache addMessage failed: roomId={}", chatRoomId, e);
+            }
         }
     }
-
-    @Transactional
-    public void saveBatch(List<PendingMessage> batch) {
-        List<Message> entities = new ArrayList<>(batch.size());
-        for (PendingMessage msg : batch) {
-            ChatRoom room = chatRoomRepository.getReferenceById(msg.chatRoomId());
-            User user = userRepository.getReferenceById(msg.userId());
-            entities.add(Message.builder()
-                    .chatRoom(room)
-                    .user(user)
-                    .text(msg.text())
-                    .sentAt(msg.sentAt())
-                    .deleted(false)
-                    .build());
-        }
-        messageRepository.saveAll(entities);
-    }
-
-    @PreDestroy
-    void shutdown() {
-        scheduler.shutdown();
-        // 남은 버퍼 플러시
-        flushBuffer();
-        while (!buffer.isEmpty()) flushBuffer();
-    }
-
-    private void storeToRedis(PendingMessage msg) {
-        try {
-            String entry = objectMapper.writeValueAsString(Map.of(
-                    "chatRoomId", msg.chatRoomId(),
-                    "userId", msg.userId(),
-                    "text", msg.text(),
-                    "failedAt", LocalDateTime.now().toString()));
-            redisTemplate.opsForList().rightPush(FAILED_MESSAGES_KEY, entry);
-            redisTemplate.expire(FAILED_MESSAGES_KEY, FAILED_MESSAGES_TTL);
-        } catch (JsonProcessingException e) {
-            log.error("Redis 폴백 직렬화 실패: chatRoomId={}", msg.chatRoomId(), e);
-        }
-    }
-
-    record PendingMessage(Long chatRoomId, Long userId, String text, LocalDateTime sentAt) {}
 }

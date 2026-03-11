@@ -4,6 +4,7 @@ import com.example.onlyone.domain.chat.dto.ChatMessageItemDto;
 import com.example.onlyone.domain.chat.dto.ChatMessageResponse;
 import com.example.onlyone.domain.chat.port.ChatMessageStoragePort;
 import com.example.onlyone.domain.chat.repository.UserChatRoomRepository;
+import com.example.onlyone.domain.chat.stream.ChatMessageCache;
 import com.example.onlyone.domain.chat.util.MessageUtils;
 import com.example.onlyone.domain.chat.exception.ChatErrorCode;
 import com.example.onlyone.global.exception.CustomException;
@@ -24,6 +25,7 @@ public class MessageCommandService {
     private final ChatMessageStoragePort chatMessageStoragePort;
     private final UserChatRoomRepository userChatRoomRepository;
     private final ChatPublisher chatPublisher;
+    private final ChatMessageCache chatMessageCache;
     private final ObjectMapper objectMapper;
 
     private static final int MAX_TEXT_LENGTH = 2000;
@@ -46,6 +48,9 @@ public class MessageCommandService {
         ChatMessageResponse response = ChatMessageResponse.forWebSocket(
                 chatRoomId, senderId, nickname, profileImage, rawText);
         publish(chatRoomId, response);
+
+        // 읽기 캐시에 즉시 반영
+        chatMessageCache.addMessage(chatRoomId, senderId, nickname, profileImage, rawText, java.time.LocalDateTime.now());
     }
 
     /**
