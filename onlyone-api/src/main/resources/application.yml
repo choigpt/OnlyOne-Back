@@ -315,8 +315,8 @@ spring:
     username: ${DB_USERNAME:root}
     password: ${DB_PASSWORD:root}
     hikari:
-      maximum-pool-size: ${HIKARI_WRITE_POOL:100}
-      minimum-idle: ${HIKARI_WRITE_MIN:20}
+      maximum-pool-size: ${HIKARI_WRITE_POOL:30}
+      minimum-idle: ${HIKARI_WRITE_MIN:10}
       connection-timeout: 10000
       idle-timeout: 300000
       max-lifetime: 600000
@@ -414,9 +414,9 @@ server:
   port: 8080
   tomcat:
     threads:
-      max: 200
-      min-spare: 20
-    max-connections: 10000
+      max: 100
+      min-spare: 10
+    max-connections: 8000
     accept-count: 500
   compression:
     enabled: true
@@ -436,8 +436,8 @@ app:
   datasource:
     routing:
       enabled: true
-    read-pool-size: ${HIKARI_READ_POOL:80}
-    read-min-idle: ${HIKARI_READ_MIN:15}
+    read-pool-size: ${HIKARI_READ_POOL:30}
+    read-min-idle: ${HIKARI_READ_MIN:10}
   feed-like-stream:
     enabled: ${FEED_LIKE_STREAM_ENABLED:true}
   kafka:
