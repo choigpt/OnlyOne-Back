@@ -40,9 +40,13 @@ public class ChatRoomCommandService {
     public void deleteChatRoom(Long chatRoomId, Long clubId) {
         ChatRoom chatRoom = chatRoomRepository.findByChatRoomIdAndClubClubId(chatRoomId, clubId)
                 .orElseThrow(() -> new CustomException(ChatErrorCode.CHAT_ROOM_NOT_FOUND));
+        safeDeleteChatRoom(chatRoom);
+        log.info("채팅방 삭제: chatRoomId={}, clubId={}", chatRoomId, clubId);
+    }
+
+    private void safeDeleteChatRoom(ChatRoom chatRoom) {
         try {
             chatRoomRepository.delete(chatRoom);
-            log.info("채팅방 삭제: chatRoomId={}, clubId={}", chatRoomId, clubId);
         } catch (DataIntegrityViolationException e) {
             throw new CustomException(ChatErrorCode.CHAT_ROOM_DELETE_FAILED);
         }

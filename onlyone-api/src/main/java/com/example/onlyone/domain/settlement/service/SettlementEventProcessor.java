@@ -90,51 +90,96 @@ public class SettlementEventProcessor {
     // ========== 배치 정산 처리 ==========
 
     private void processSettlementBatch(SettlementProcessEvent event) {
-        List<Long> targetUserIds = event.targetUserIds();
-        long amount = event.costPerUser();
-        Long settlementId = event.settlementId();
-
-        // 락 순서를 userId 오름차순으로 고정하여 데드락 방지
-        List<Long> sortedUserIds = new ArrayList<>(targetUserIds);
-        Collections.sort(sortedUserIds);
+        List<Long> sortedUserIds = sortUserIdsForLockOrder(event.targetUserIds());
 
         try {
-            txTemplate.executeWithoutResult(status -> {
-                // 1. 배치 captureHold — 한 번의 UPDATE로 모든 참가자 지갑 차감
-                int captured = walletRepository.batchCaptureHold(sortedUserIds, amount);
-                if (captured != sortedUserIds.size()) {
-                    log.error("배치 captureHold 부분 실패: settlementId={}, expected={}, captured={}",
-                            settlementId, sortedUserIds.size(), captured);
-                    status.setRollbackOnly();
-                    return;
-                }
-
-                // 2. 배치 markCompleted — 한 번의 UPDATE로 모든 참가자 상태 전이
-                userSettlementRepository.batchMarkCompleted(
-                        settlementId, sortedUserIds, LocalDateTime.now());
-
-                // 3. 배치 조회 — walletId, userSettlementId를 IN절로 한번에
-                Map<Long, Long> walletIdMap = new HashMap<>();
-                for (var row : walletRepository.findWalletIdsByUserIds(sortedUserIds)) {
-                    walletIdMap.put(row.getUserId(), row.getWalletId());
-                }
-                Map<Long, Long> usIdMap = new HashMap<>();
-                for (var row : userSettlementRepository
-                        .findUserSettlementIdsBySettlementIdAndUserIds(settlementId, sortedUserIds)) {
-                    usIdMap.put(row.getUserId(), row.getUserSettlementId());
-                }
-
-                // 4. Outbox 이벤트 — 참가자별 append
-                for (Long participantId : sortedUserIds) {
-                    appendSuccessOutbox(event, participantId,
-                            walletIdMap.getOrDefault(participantId, 0L),
-                            usIdMap.getOrDefault(participantId, 0L));
-                }
-            });
+            txTemplate.executeWithoutResult(status ->
+                    executeSettlementTransaction(status, event, sortedUserIds));
             completeSettlement(event);
         } catch (Exception e) {
-            log.error("배치 정산 실패: settlementId={}", settlementId, e);
-            revertSettlementToFailed(settlementId);
+            log.error("배치 정산 실패: settlementId={}", event.settlementId(), e);
+            revertSettlementToFailed(event.settlementId());
+        }
+    }
+
+    /**
+     * 락 순서를 userId 오름차순으로 고정하여 데드락 방지.
+     */
+    private List<Long> sortUserIdsForLockOrder(List<Long> userIds) {
+        List<Long> sorted = new ArrayList<>(userIds);
+        Collections.sort(sorted);
+        return sorted;
+    }
+
+    /**
+     * 단일 트랜잭션 내에서 captureHold, markCompleted, outbox append를 수행한다.
+     */
+    private void executeSettlementTransaction(
+            org.springframework.transaction.TransactionStatus status,
+            SettlementProcessEvent event,
+            List<Long> sortedUserIds) {
+
+        if (!batchCaptureHold(status, event.settlementId(), sortedUserIds, event.costPerUser())) {
+            return;
+        }
+
+        userSettlementRepository.batchMarkCompleted(
+                event.settlementId(), sortedUserIds, LocalDateTime.now());
+
+        Map<Long, Long> walletIdMap = buildWalletIdMap(sortedUserIds);
+        Map<Long, Long> usIdMap = buildUserSettlementIdMap(event.settlementId(), sortedUserIds);
+
+        appendOutboxForParticipants(event, sortedUserIds, walletIdMap, usIdMap);
+    }
+
+    /**
+     * 배치 captureHold를 수행하고 부분 실패 시 롤백을 설정한다.
+     *
+     * @return true면 성공, false면 롤백 설정됨
+     */
+    private boolean batchCaptureHold(
+            org.springframework.transaction.TransactionStatus status,
+            Long settlementId,
+            List<Long> sortedUserIds,
+            long amount) {
+
+        int captured = walletRepository.batchCaptureHold(sortedUserIds, amount);
+        if (captured != sortedUserIds.size()) {
+            log.error("배치 captureHold 부분 실패: settlementId={}, expected={}, captured={}",
+                    settlementId, sortedUserIds.size(), captured);
+            status.setRollbackOnly();
+            return false;
+        }
+        return true;
+    }
+
+    private Map<Long, Long> buildWalletIdMap(List<Long> userIds) {
+        Map<Long, Long> map = new HashMap<>();
+        for (var row : walletRepository.findWalletIdsByUserIds(userIds)) {
+            map.put(row.getUserId(), row.getWalletId());
+        }
+        return map;
+    }
+
+    private Map<Long, Long> buildUserSettlementIdMap(Long settlementId, List<Long> userIds) {
+        Map<Long, Long> map = new HashMap<>();
+        for (var row : userSettlementRepository
+                .findUserSettlementIdsBySettlementIdAndUserIds(settlementId, userIds)) {
+            map.put(row.getUserId(), row.getUserSettlementId());
+        }
+        return map;
+    }
+
+    private void appendOutboxForParticipants(
+            SettlementProcessEvent event,
+            List<Long> sortedUserIds,
+            Map<Long, Long> walletIdMap,
+            Map<Long, Long> usIdMap) {
+
+        for (Long participantId : sortedUserIds) {
+            appendSuccessOutbox(event, participantId,
+                    walletIdMap.getOrDefault(participantId, 0L),
+                    usIdMap.getOrDefault(participantId, 0L));
         }
     }
 

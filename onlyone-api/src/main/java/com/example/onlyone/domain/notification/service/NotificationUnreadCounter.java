@@ -23,28 +23,15 @@ public class NotificationUnreadCounter {
     private final StringRedisTemplate redis;
     private final NotificationStoragePort storagePort;
 
-    /** Redis 캐시 우선 조회, 미스 시 DB fallback + 캐싱 */
     public Long getCount(Long userId) {
-        String key = key(userId);
-        try {
-            String cached = redis.opsForValue().get(key);
-            if (cached != null) {
-                return Math.max(0L, Long.parseLong(cached));
-            }
-        // Redis 장애(연결 실패, 시리얼라이제이션 오류 등) 시 DB fallback — 광범위 캐치 의도적
-        } catch (Exception e) {
-            log.warn("Redis 읽기 실패, DB fallback: userId={}", userId, e);
-        }
-
-        Long count = storagePort.countUnreadByUserId(userId);
-        setQuietly(key(userId), String.valueOf(count));
-        return count;
+        Long cached = getFromCache(userId);
+        if (cached != null) return cached;
+        return loadFromDb(userId);
     }
 
     public void increment(Long userId) {
         try {
             redis.opsForValue().increment(key(userId));
-        // Redis 장애(연결 실패, 시리얼라이제이션 오류 등) 시 무시 — 광범위 캐치 의도적
         } catch (Exception e) {
             log.warn("Redis 카운터 증가 실패: userId={}", userId, e);
         }
@@ -52,20 +39,40 @@ public class NotificationUnreadCounter {
 
     public void decrement(Long userId) {
         try {
-            String key = key(userId);
-            Long result = redis.opsForValue().decrement(key);
-            if (result != null && result < 0) {
-                redis.delete(key);
-            }
-        // Redis 장애(연결 실패, 시리얼라이제이션 오류 등) 시 무시 — 광범위 캐치 의도적
+            decrementAndCleanup(userId);
         } catch (Exception e) {
             log.warn("Redis 카운터 감소 실패: userId={}", userId, e);
         }
     }
 
-    /** 전체 읽음 시 카운터를 0으로 리셋 */
     public void reset(Long userId) {
         setQuietly(key(userId), "0");
+    }
+
+    // ── private helpers ──
+
+    private Long getFromCache(Long userId) {
+        try {
+            String cached = redis.opsForValue().get(key(userId));
+            return cached != null ? Math.max(0L, Long.parseLong(cached)) : null;
+        } catch (Exception e) {
+            log.warn("Redis 읽기 실패, DB fallback: userId={}", userId, e);
+            return null;
+        }
+    }
+
+    private Long loadFromDb(Long userId) {
+        Long count = storagePort.countUnreadByUserId(userId);
+        setQuietly(key(userId), String.valueOf(count));
+        return count;
+    }
+
+    private void decrementAndCleanup(Long userId) {
+        String key = key(userId);
+        Long result = redis.opsForValue().decrement(key);
+        if (result != null && result < 0) {
+            redis.delete(key);
+        }
     }
 
     private String key(Long userId) {
@@ -75,7 +82,6 @@ public class NotificationUnreadCounter {
     private void setQuietly(String key, String value) {
         try {
             redis.opsForValue().set(key, value, CACHE_TTL);
-        // Redis 장애(연결 실패, 시리얼라이제이션 오류 등) 시 무시 — 광범위 캐치 의도적
         } catch (Exception e) {
             log.warn("Redis 캐시 저장 실패: key={}", key, e);
         }

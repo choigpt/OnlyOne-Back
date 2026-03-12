@@ -96,23 +96,18 @@ public class FeedRenderService {
         long selfRepostCount = ctx.repostCntMap().getOrDefault(f.feedId(), 0L);
         FeedOverviewDto.FeedOverviewDtoBuilder b = buildBaseDto(f, ctx, selfRepostCount);
 
-        Long parentId = f.parentFeedId();
-        if (parentId != null) {
-            FeedDetailItem p = ctx.parentMap().get(parentId);
-            if (p != null) {
-                b.parentFeed(buildBaseDto(p, ctx, ctx.repostCntMap().getOrDefault(parentId, 0L)).build());
-            }
-        }
-
-        Long rootId = f.rootFeedId();
-        if (rootId != null) {
-            FeedDetailItem r = ctx.rootMap().get(rootId);
-            if (r != null) {
-                b.rootFeed(buildBaseDto(r, ctx, ctx.repostCntMap().getOrDefault(rootId, 0L)).build());
-            }
-        }
+        attachRelatedFeed(f.parentFeedId(), ctx.parentMap(), ctx, b::parentFeed);
+        attachRelatedFeed(f.rootFeedId(), ctx.rootMap(), ctx, b::rootFeed);
 
         return b.build();
+    }
+
+    private void attachRelatedFeed(Long relatedId, Map<Long, FeedDetailItem> map,
+                                   RenderContext ctx, java.util.function.Consumer<FeedOverviewDto> setter) {
+        if (relatedId == null) return;
+        FeedDetailItem related = map.get(relatedId);
+        if (related == null) return;
+        setter.accept(buildBaseDto(related, ctx, ctx.repostCntMap().getOrDefault(relatedId, 0L)).build());
     }
 
     private FeedOverviewDto.FeedOverviewDtoBuilder buildBaseDto(FeedDetailItem f, RenderContext ctx, long repostCount) {

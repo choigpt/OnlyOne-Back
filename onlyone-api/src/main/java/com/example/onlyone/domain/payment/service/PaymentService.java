@@ -69,44 +69,57 @@ public class PaymentService {
     public ConfirmTossPayResponse confirm(ConfirmTossPayRequest req) {
         log.info("결제 승인 시작: orderId={}, amount={}", req.orderId(), req.amount());
 
-        // Gate: 멱등성 게이트 — DB 히트 전 중복 요청 즉시 차단
-        String gateKey = REDIS_PAYMENT_GATE_PREFIX + req.orderId();
+        String gateKey = acquireIdempotencyGate(req.orderId());
+
+        try {
+            txService.claimPayment(req.orderId(), req.amount());
+            ConfirmTossPayResponse response = callTossPayment(req);
+            applyResultOrCompensate(req.orderId(), req.amount(), response);
+            return response;
+        } catch (Exception e) {
+            redisTemplate.delete(gateKey);
+            throw e;
+        }
+    }
+
+    /* Gate: 멱등성 게이트 — DB 히트 전 중복 요청 즉시 차단 */
+    private String acquireIdempotencyGate(String orderId) {
+        String gateKey = REDIS_PAYMENT_GATE_PREFIX + orderId;
         Boolean acquired = redisTemplate.opsForValue()
                 .setIfAbsent(gateKey, "1", PAYMENT_GATE_TTL_SECONDS, TimeUnit.SECONDS);
         if (Boolean.FALSE.equals(acquired)) {
             throw new CustomException(FinanceErrorCode.PAYMENT_IN_PROGRESS);
         }
+        return gateKey;
+    }
 
+    /* Phase 2: 토스페이먼츠 결제 호출 (트랜잭션 밖, Payment lock 없음) */
+    private ConfirmTossPayResponse callTossPayment(ConfirmTossPayRequest req) {
         try {
-            // Phase 1: CAS 기반 Payment 선점 (독립 트랜잭션, 즉시 커밋)
-            txService.claimPayment(req.orderId(), req.amount());
-
-            // Phase 2: 토스페이먼츠 결제 호출 (트랜잭션 밖, Payment lock 없음)
-            final ConfirmTossPayResponse response;
-            try {
-                response = tossPaymentClient.confirmPayment(req);
-            } catch (FeignException.BadRequest e) {
-                throw handlePaymentFailure(req, FinanceErrorCode.INVALID_PAYMENT_INFO, e);
-            } catch (FeignException e) {
-                throw handlePaymentFailure(req, FinanceErrorCode.TOSS_PAYMENT_FAILED, e);
-            } catch (Exception e) {
-                throw handlePaymentFailure(req, GlobalErrorCode.INTERNAL_SERVER_ERROR, e);
-            }
-
-            // Phase 3: paymentKey 저장 + 지갑 반영 + 트랜잭션 기록 (독립 트랜잭션)
-            try {
-                txService.applyPaymentResult(req.orderId(), req.amount(), response);
-            } catch (Exception e) {
-                log.error("Phase 3 failed for orderId={}. Initiating Toss cancel compensation.", req.orderId(), e);
-                cancelAndAbort(response.paymentKey(), req.orderId());
-                throw new CustomException(FinanceErrorCode.TOSS_PAYMENT_FAILED);
-            }
-
-            return response;
+            return tossPaymentClient.confirmPayment(req);
         } catch (Exception e) {
-            // 실패/에러 시 게이트 해제 → 재시도 허용
-            redisTemplate.delete(gateKey);
-            throw e;
+            throw handlePaymentFailure(req, resolvePaymentErrorCode(e), e);
+        }
+    }
+
+    private ErrorCode resolvePaymentErrorCode(Exception e) {
+        if (e instanceof FeignException.BadRequest) {
+            return FinanceErrorCode.INVALID_PAYMENT_INFO;
+        }
+        if (e instanceof FeignException) {
+            return FinanceErrorCode.TOSS_PAYMENT_FAILED;
+        }
+        return GlobalErrorCode.INTERNAL_SERVER_ERROR;
+    }
+
+    /* Phase 3: paymentKey 저장 + 지갑 반영 + 트랜잭션 기록. 실패 시 보상 */
+    private void applyResultOrCompensate(String orderId, long amount, ConfirmTossPayResponse response) {
+        try {
+            txService.applyPaymentResult(orderId, amount, response);
+        } catch (Exception e) {
+            log.error("Phase 3 failed for orderId={}. Initiating Toss cancel compensation.", orderId, e);
+            cancelAndAbort(response.paymentKey(), orderId);
+            throw new CustomException(FinanceErrorCode.TOSS_PAYMENT_FAILED);
         }
     }
 

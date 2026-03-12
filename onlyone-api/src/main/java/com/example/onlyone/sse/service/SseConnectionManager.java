@@ -14,87 +14,59 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import java.time.LocalDateTime;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicInteger;
 
 @Slf4j
 @Component
 public class SseConnectionManager {
 
-    @Value("${app.notification.sse-timeout-millis:60000}")
-    private long sseTimeoutMillis;
-
-    @Value("${app.notification.max-connections:7000}")
-    private int maxConnections;
-
+    private final long sseTimeoutMillis;
+    private final int maxConnections;
     private static final long CLEANUP_GRACE_PERIOD_MS = 60_000;
 
     private final ConcurrentHashMap<Long, SseConnection> activeConnections = new ConcurrentHashMap<>();
 
-    /** 분산 환경에서만 주입됨 (app.notification.multi-instance=true) */
     @Autowired(required = false)
     private DistributedConnectionRegistry distributedRegistry;
 
+    public SseConnectionManager(
+            @Value("${app.notification.sse-timeout-millis:60000}") long sseTimeoutMillis,
+            @Value("${app.notification.max-connections:7000}") int maxConnections) {
+        this.sseTimeoutMillis = sseTimeoutMillis;
+        this.maxConnections = maxConnections;
+    }
+
+    // ── 커넥션 생명주기 ──
+
     public SseEmitter createConnection(Long userId) {
-        if (userId == null) {
-            throw new CustomException(GlobalErrorCode.UNAUTHORIZED);
-        }
+        validateUserId(userId);
+        validateCapacity(userId);
 
-        if (activeConnections.size() >= maxConnections && !activeConnections.containsKey(userId)) {
-            throw new CustomException(SseErrorCode.SSE_CONNECTION_LIMIT_EXCEEDED);
-        }
+        SseConnection connection = buildConnection(userId);
+        registerCallbacks(connection);
+        replaceConnection(userId, connection);
+        sendInitEvent(userId, connection);
+        registerToDistributedRegistry(userId);
 
-        SseConnection newConnection = SseConnection.builder()
-                .userId(userId)
-                .emitter(new SseEmitter(sseTimeoutMillis))
-                .connectionTime(LocalDateTime.now())
-                .timeoutMillis(sseTimeoutMillis)
-                .build();
-
-        registerConnectionCallbacks(newConnection);
-
-        // 원자적으로 기존 연결을 교체하고 이전 연결을 안전하게 정리
-        SseConnection oldConnection = activeConnections.put(userId, newConnection);
-        if (oldConnection != null) {
-            completeEmitterQuietly(oldConnection.getEmitter());
-        }
-
-        try {
-            newConnection.getEmitter().send(SseEmitter.event()
-                    .id("init_" + System.currentTimeMillis())
-                    .name("connected")
-                    .data("OK"));
-        } catch (Exception e) {
-            activeConnections.remove(userId, newConnection);
-            throw new CustomException(SseErrorCode.SSE_CONNECTION_FAILED);
-        }
-
-        // 분산 레지스트리에 등록
-        if (distributedRegistry != null) {
-            distributedRegistry.register(userId);
-        }
-
-        return newConnection.getEmitter();
+        return connection.getEmitter();
     }
 
     public void cleanupConnection(Long userId) {
         activeConnections.remove(userId);
-
-        // 분산 레지스트리에서 해제
-        if (distributedRegistry != null) {
-            distributedRegistry.unregister(userId);
-        }
+        unregisterFromDistributedRegistry(userId);
     }
+
+    public void clearAllConnections() {
+        activeConnections.entrySet().removeIf(entry -> {
+            closeQuietly(entry.getValue());
+            unregisterFromDistributedRegistry(entry.getKey());
+            return true;
+        });
+    }
+
+    // ── 조회 ──
 
     public SseConnection getConnection(Long userId) {
         return activeConnections.get(userId);
-    }
-
-    public int getActiveConnectionCount() {
-        return activeConnections.size();
-    }
-
-    public int getMaxConnections() {
-        return maxConnections;
     }
 
     public boolean isUserConnected(Long userId) {
@@ -105,76 +77,135 @@ public class SseConnectionManager {
         return Set.copyOf(activeConnections.keySet());
     }
 
-    public void clearAllConnections() {
-        try {
-            activeConnections.entrySet().removeIf(entry -> {
-                completeEmitterQuietly(entry.getValue().getEmitter());
-                if (distributedRegistry != null) {
-                    distributedRegistry.unregister(entry.getKey());
-                }
-                return true;
-            });
-        } catch (Exception e) {
-            throw new CustomException(SseErrorCode.SSE_CLEANUP_FAILED);
-        }
+    public int getActiveConnectionCount() {
+        return activeConnections.size();
     }
 
-    /**
-     * 주기적으로 타임아웃된 좀비 SSE 커넥션 정리
-     * 클라이언트가 비정상 종료되어 콜백이 호출되지 않은 커넥션을 정리
-     */
-    @Scheduled(fixedRate = 120_000) // 2분 주기
+    public int getMaxConnections() {
+        return maxConnections;
+    }
+
+    // ── 좀비 커넥션 정리 (2분 주기) ──
+
+    @Scheduled(fixedRate = 120_000)
     public void cleanupStaleConnections() {
+        if (activeConnections.isEmpty()) return;
+
         try {
-            int connectionCount = activeConnections.size();
-            if (connectionCount == 0) {
-                return;
-            }
-
-            LocalDateTime cutoffTime = LocalDateTime.now().minusSeconds((sseTimeoutMillis + CLEANUP_GRACE_PERIOD_MS) / 1000);
-            AtomicInteger cleaned = new AtomicInteger(0);
-
-            activeConnections.entrySet().removeIf(entry -> {
-                if (entry.getValue().getConnectionTime().isBefore(cutoffTime)) {
-                    completeEmitterQuietly(entry.getValue().getEmitter());
-                    if (distributedRegistry != null) {
-                        distributedRegistry.unregister(entry.getKey());
-                    }
-                    cleaned.incrementAndGet();
-                    return true;
-                }
-                return false;
-            });
-
-            // 분산 레지스트리 TTL 갱신
-            if (distributedRegistry != null && !activeConnections.isEmpty()) {
-                distributedRegistry.refreshTtl();
-            }
-
-            if (cleaned.get() > 0) {
-                log.info("좀비 SSE 커넥션 정리: cleaned={}, remaining={}", cleaned.get(), activeConnections.size());
-            }
+            doCleanupStaleConnections();
         } catch (Exception e) {
             log.warn("SSE 커넥션 정리 중 오류", e);
         }
     }
 
-    private void completeEmitterQuietly(SseEmitter emitter) {
-        if (emitter != null) {
-            try {
-                emitter.complete();
-            } catch (Exception e) {
-                // 이미 완료된 연결 무시
-            }
+    // ── createConnection helpers ──
+
+    private void validateUserId(Long userId) {
+        if (userId == null) {
+            throw new CustomException(GlobalErrorCode.UNAUTHORIZED);
         }
     }
 
-    private void registerConnectionCallbacks(SseConnection connection) {
+    private void validateCapacity(Long userId) {
+        if (activeConnections.size() >= maxConnections && !activeConnections.containsKey(userId)) {
+            throw new CustomException(SseErrorCode.SSE_CONNECTION_LIMIT_EXCEEDED);
+        }
+    }
+
+    private SseConnection buildConnection(Long userId) {
+        return SseConnection.builder()
+                .userId(userId)
+                .emitter(new SseEmitter(sseTimeoutMillis))
+                .connectionTime(LocalDateTime.now())
+                .timeoutMillis(sseTimeoutMillis)
+                .build();
+    }
+
+    private void replaceConnection(Long userId, SseConnection newConnection) {
+        SseConnection old = activeConnections.put(userId, newConnection);
+        if (old != null) {
+            closeQuietly(old);
+        }
+    }
+
+    private void sendInitEvent(Long userId, SseConnection connection) {
+        try {
+            connection.getEmitter().send(SseEmitter.event()
+                    .id("init_" + System.currentTimeMillis())
+                    .name("connected")
+                    .data("OK"));
+        } catch (Exception e) {
+            activeConnections.remove(userId, connection);
+            throw new CustomException(SseErrorCode.SSE_CONNECTION_FAILED);
+        }
+    }
+
+    private void registerCallbacks(SseConnection connection) {
         SseEmitter emitter = connection.getEmitter();
         Long userId = connection.getUserId();
-
         emitter.onCompletion(() -> cleanupConnection(userId));
         emitter.onTimeout(() -> cleanupConnection(userId));
-        emitter.onError((ex) -> cleanupConnection(userId));
+        emitter.onError(ex -> cleanupConnection(userId));
+    }
+
+    // ── cleanup helpers ──
+
+    private void doCleanupStaleConnections() {
+        LocalDateTime cutoff = computeCutoff();
+        int cleaned = removeConnectionsBefore(cutoff);
+        refreshDistributedRegistryTtl();
+        logCleanupResult(cleaned);
+    }
+
+    private LocalDateTime computeCutoff() {
+        return LocalDateTime.now()
+                .minusSeconds((sseTimeoutMillis + CLEANUP_GRACE_PERIOD_MS) / 1000);
+    }
+
+    private int removeConnectionsBefore(LocalDateTime cutoff) {
+        int[] cleaned = {0};
+        activeConnections.entrySet().removeIf(entry -> {
+            if (entry.getValue().getConnectionTime().isBefore(cutoff)) {
+                closeQuietly(entry.getValue());
+                unregisterFromDistributedRegistry(entry.getKey());
+                cleaned[0]++;
+                return true;
+            }
+            return false;
+        });
+        return cleaned[0];
+    }
+
+    private void refreshDistributedRegistryTtl() {
+        if (distributedRegistry != null && !activeConnections.isEmpty()) {
+            distributedRegistry.refreshTtl();
+        }
+    }
+
+    private void logCleanupResult(int cleaned) {
+        if (cleaned > 0) {
+            log.info("좀비 SSE 커넥션 정리: cleaned={}, remaining={}", cleaned, activeConnections.size());
+        }
+    }
+
+    // ── 공통 helpers ──
+
+    private void closeQuietly(SseConnection connection) {
+        try {
+            connection.getEmitter().complete();
+        } catch (Exception ignored) {
+        }
+    }
+
+    private void registerToDistributedRegistry(Long userId) {
+        if (distributedRegistry != null) {
+            distributedRegistry.register(userId);
+        }
+    }
+
+    private void unregisterFromDistributedRegistry(Long userId) {
+        if (distributedRegistry != null) {
+            distributedRegistry.unregister(userId);
+        }
     }
 }

@@ -71,28 +71,25 @@ public class SearchService {
         PageRequest pageRequest = PageRequest.of(page, DEFAULT_PAGE_SIZE);
         User user = userService.getCurrentUser();
 
-        // 사용자 관심사 조회
         List<Long> interestIds = userInterestRepository.findInterestIdsByUserId(user.getUserId());
-
-        // 관심사가 없는 경우 빈 리스트 반환
         if (interestIds.isEmpty()) {
             return new ArrayList<>();
         }
 
-        // 1단계: 관심사 + 지역 일치 (사용자 지역 정보가 유효한 경우만)
+        List<ClubWithMemberCount> resultList = searchByLocationThenInterest(user, interestIds, pageRequest);
+        return convertToClubResponseDto(sampleForHome(resultList, sampleSize));
+    }
+
+    // 1단계: 관심사 + 지역 일치 시도, 결과 없으면 2단계: 관심사만
+    private List<ClubWithMemberCount> searchByLocationThenInterest(User user, List<Long> interestIds, PageRequest pageRequest) {
         if (hasValidLocation(user)) {
             List<ClubWithMemberCount> resultList = clubRepository.searchByUserInterestAndLocation(
                     interestIds, user.getCity(), user.getDistrict(), user.getUserId(), pageRequest);
-
             if (!resultList.isEmpty()) {
-                return convertToClubResponseDto(sampleForHome(resultList, sampleSize));
+                return resultList;
             }
         }
-
-        // 2단계: 관심사 일치
-        List<ClubWithMemberCount> resultList = clubRepository.searchByUserInterests(interestIds, user.getUserId(), pageRequest);
-
-        return convertToClubResponseDto(sampleForHome(resultList, sampleSize));
+        return clubRepository.searchByUserInterests(interestIds, user.getUserId(), pageRequest);
     }
 
     // 모임 검색 (관심사)
@@ -114,9 +111,7 @@ public class SearchService {
     @Transactional(readOnly = true)
     @Cacheable(value = "searchLocation", key = "#city + '_' + #district + '_' + #page")
     public List<ClubResponseDto> searchClubByLocation(String city, String district, int page) {
-        if (city == null || district == null || city.trim().isEmpty() || district.trim().isEmpty()) {
-            throw new CustomException(SearchErrorCode.INVALID_LOCATION);
-        }
+        validateLocationParams(city, district);
 
         PageRequest pageRequest = PageRequest.of(page, DEFAULT_PAGE_SIZE);
         List<ClubWithMemberCount> resultList = clubRepository.searchByLocation(city, district, pageRequest);
@@ -126,20 +121,19 @@ public class SearchService {
         return convertToClubResponseDto(resultList, joinedClubIds);
     }
 
+    private void validateLocationParams(String city, String district) {
+        if (!isNonBlank(city) || !isNonBlank(district)) {
+            throw new CustomException(SearchErrorCode.INVALID_LOCATION);
+        }
+    }
+
     // 통합 검색 (키워드 + 필터) - 하이브리드 방식
     // DB 조회와 ES/MySQL 검색을 병렬 실행하여 레이턴시 최소화
     @Transactional(readOnly = true)
     public List<ClubResponseDto> searchClubs(SearchFilterDto filter) {
         log.debug("모임 검색 요청: keyword={}, interestId={}, city={}, district={}",
                 filter.keyword(), filter.interestId(), filter.city(), filter.district());
-        // 지역 필터 유효성 검증
-        if (!filter.isLocationValid()) {
-            throw new CustomException(SearchErrorCode.INVALID_SEARCH_FILTER);
-        }
-        // 키워드 유효성 검증
-        if (!filter.isKeywordValid()) {
-            throw new CustomException(SearchErrorCode.SEARCH_KEYWORD_TOO_SHORT);
-        }
+        validateSearchFilter(filter);
 
         Long userId = userService.getCurrentUserId();
 
@@ -148,15 +142,28 @@ public class SearchService {
                 () -> userClubRepository.findByClubIdsByUserId(userId), searchAsyncExecutor)
                 .orTimeout(5, java.util.concurrent.TimeUnit.SECONDS);
 
-        if (filter.hasKeyword()) {
-            List<ClubSearchResult> searchResults = searchWithKeyword(filter);
-            List<Long> joinedClubIds = joinedFuture.join();
-            return convertSearchResultsWithJoinStatus(searchResults, joinedClubIds);
-        } else {
-            List<ClubWithMemberCount> resultList = searchWithMysql(filter);
-            List<Long> joinedClubIds = joinedFuture.join();
-            return convertToClubResponseDto(resultList, joinedClubIds);
+        return filter.hasKeyword()
+                ? searchByKeywordWithJoinStatus(filter, joinedFuture)
+                : searchByFilterWithJoinStatus(filter, joinedFuture);
+    }
+
+    private void validateSearchFilter(SearchFilterDto filter) {
+        if (!filter.isLocationValid()) {
+            throw new CustomException(SearchErrorCode.INVALID_SEARCH_FILTER);
         }
+        if (!filter.isKeywordValid()) {
+            throw new CustomException(SearchErrorCode.SEARCH_KEYWORD_TOO_SHORT);
+        }
+    }
+
+    private List<ClubResponseDto> searchByKeywordWithJoinStatus(SearchFilterDto filter, CompletableFuture<List<Long>> joinedFuture) {
+        List<ClubSearchResult> searchResults = searchWithKeyword(filter);
+        return convertSearchResultsWithJoinStatus(searchResults, joinedFuture.join());
+    }
+
+    private List<ClubResponseDto> searchByFilterWithJoinStatus(SearchFilterDto filter, CompletableFuture<List<Long>> joinedFuture) {
+        List<ClubWithMemberCount> resultList = searchWithMysql(filter);
+        return convertToClubResponseDto(resultList, joinedFuture.join());
     }
 
     // 함께하는 멤버들의 다른 모임 조회
@@ -214,24 +221,25 @@ public class SearchService {
     private List<ClubWithMemberCount> searchWithMysql(SearchFilterDto filter) {
         PageRequest pageRequest = PageRequest.of(filter.page(), DEFAULT_PAGE_SIZE);
 
-        if (filter.hasLocation() && filter.interestId() != null) {
-            // 지역 + 관심사
+        if (filter.hasLocation()) {
+            return searchMysqlWithLocation(filter, pageRequest);
+        }
+        if (filter.interestId() != null) {
+            return clubRepository.searchByInterest(filter.interestId(), pageRequest);
+        }
+        return List.of();
+    }
+
+    private List<ClubWithMemberCount> searchMysqlWithLocation(SearchFilterDto filter, PageRequest pageRequest) {
+        if (filter.interestId() != null) {
             return clubRepository.searchByUserInterestAndLocation(
                     List.of(filter.interestId()),
                     filter.city().trim(),
                     filter.district().trim(),
-                    null, // userId는 null (전체 검색)
+                    null,
                     pageRequest);
-        } else if (filter.hasLocation()) {
-            // 지역만
-            return clubRepository.searchByLocation(filter.city(), filter.district(), pageRequest);
-        } else if (filter.interestId() != null) {
-            // 관심사만
-            return clubRepository.searchByInterest(filter.interestId(), pageRequest);
-        } else {
-            // 조건 없음 - 빈 결과 반환
-            return List.of();
         }
+        return clubRepository.searchByLocation(filter.city(), filter.district(), pageRequest);
     }
 
     // 검색 결과를 ClubResponseDto로 변환 (가입 상태 포함)
@@ -276,7 +284,10 @@ public class SearchService {
 
     // 사용자의 지역 정보가 유효한지 확인
     private boolean hasValidLocation(User user) {
-        return user.getCity() != null && !user.getCity().trim().isEmpty() &&
-               user.getDistrict() != null && !user.getDistrict().trim().isEmpty();
+        return isNonBlank(user.getCity()) && isNonBlank(user.getDistrict());
+    }
+
+    private boolean isNonBlank(String value) {
+        return value != null && !value.trim().isEmpty();
     }
 }

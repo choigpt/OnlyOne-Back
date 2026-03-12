@@ -116,15 +116,27 @@ public class MessageCommandService {
 
     private String resolveStoredText(String text) {
         if (!MessageUtils.isImageMessage(text)) {
-            return text.length() > MAX_TEXT_LENGTH ? text.substring(0, MAX_TEXT_LENGTH) : text;
+            return truncateText(text);
         }
+        return resolveImageText(text);
+    }
+
+    private String truncateText(String text) {
+        return text.length() > MAX_TEXT_LENGTH ? text.substring(0, MAX_TEXT_LENGTH) : text;
+    }
+
+    private String resolveImageText(String text) {
         String url = MessageUtils.extractImageUrl(text);
+        validateImageUrl(url);
+        return MessageUtils.IMAGE_PREFIX + url;
+    }
+
+    private void validateImageUrl(String url) {
         if (!MessageUtils.isValidImageUrlFormat(url)) {
             throw new CustomException(ChatErrorCode.MESSAGE_BAD_REQUEST);
         }
         if (!MessageUtils.hasValidImageExtension(url)) {
             throw new CustomException(ChatErrorCode.INVALID_IMAGE_CONTENT_TYPE);
         }
-        return MessageUtils.IMAGE_PREFIX + url;
     }
 }

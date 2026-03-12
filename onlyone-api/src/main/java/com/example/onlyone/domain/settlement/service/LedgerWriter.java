@@ -24,6 +24,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.*;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
  * LedgerWriter: user-settlement.result.v1 토픽만 구독
@@ -71,84 +72,86 @@ public class LedgerWriter {
     }
 
     private Set<String> findExistingOperationIds(List<JsonNode> events) {
-        Set<String> candidateOperationIds = new HashSet<>();
-        for (JsonNode root : events) {
-            String operationId = root.path("operationId").asText();
-            if (operationId == null || operationId.isBlank()) continue;
-            candidateOperationIds.add(operationId + OperationIdUtil.OUTGOING_SUFFIX);
-            candidateOperationIds.add(operationId + OperationIdUtil.INCOMING_SUFFIX);
-        }
+        Set<String> candidateOperationIds = collectCandidateOperationIds(events);
         return new HashSet<>(walletTransactionRepository.findExistingOperationIds(candidateOperationIds));
+    }
+
+    private Set<String> collectCandidateOperationIds(List<JsonNode> events) {
+        return events.stream()
+                .map(root -> root.path("operationId").asText())
+                .filter(id -> id != null && !id.isBlank())
+                .flatMap(id -> Stream.of(
+                        id + OperationIdUtil.OUTGOING_SUFFIX,
+                        id + OperationIdUtil.INCOMING_SUFFIX))
+                .collect(Collectors.toSet());
     }
 
     private void buildTransactionsAndTransfers(List<JsonNode> events, Set<String> existing,
                                                List<WalletTransaction> walletTransactions,
                                                List<Transfer> transfers) {
         for (JsonNode root : events) {
-            String type = root.path("type").asText("SUCCESS");
             String operationId = root.path("operationId").asText();
             if (operationId == null || operationId.isBlank()) continue;
-
-            long userSettlementId = root.path("userSettlementId").asLong();
-            long memberWalletId   = root.path("memberWalletId").asLong();
-            long leaderWalletId   = root.path("leaderWalletId").asLong();
-            long amount           = root.path("amount").asLong();
-
-            Wallet memberWallet = walletRepository.getReferenceById(memberWalletId);
-            Wallet leaderWallet = walletRepository.getReferenceById(leaderWalletId);
-            UserSettlement us   = userSettlementRepository.getReferenceById(userSettlementId);
-
-            WalletTransactionStatus status =
-                    type.equals("SUCCESS") ? WalletTransactionStatus.COMPLETED : WalletTransactionStatus.FAILED;
-
-            // OUTGOING
-            String outId = operationId + OperationIdUtil.OUTGOING_SUFFIX;
-            if (!existing.contains(outId)) {
-                WalletTransaction outTx = WalletTransaction.builder()
-                        .operationId(outId)
-                        .type(TransactionType.OUTGOING)
-                        .wallet(memberWallet)
-                        .targetWallet(leaderWallet)
-                        .amount(amount)
-                        .balance(memberWallet.getPostedBalance())
-                        .walletTransactionStatus(status)
-                        .build();
-                walletTransactions.add(outTx);
-
-                Transfer outTransfer = Transfer.builder()
-                        .userSettlementId(us.getUserSettlementId())
-                        .walletTransaction(outTx)
-                        .build();
-                transfers.add(outTransfer);
-                outTx.updateTransfer(outTransfer);
-            }
-
-            // INCOMING
-            String inId = operationId + OperationIdUtil.INCOMING_SUFFIX;
-            if (!existing.contains(inId)) {
-                WalletTransaction inTx = WalletTransaction.builder()
-                        .operationId(inId)
-                        .type(TransactionType.INCOMING)
-                        .wallet(leaderWallet)
-                        .targetWallet(memberWallet)
-                        .amount(amount)
-                        .balance(leaderWallet.getPostedBalance())
-                        .walletTransactionStatus(status)
-                        .build();
-                walletTransactions.add(inTx);
-
-                Transfer inTransfer = Transfer.builder()
-                        .userSettlementId(us.getUserSettlementId())
-                        .walletTransaction(inTx)
-                        .build();
-                transfers.add(inTransfer);
-                inTx.updateTransfer(inTransfer);
-            }
+            buildSingleEvent(root, operationId, existing, walletTransactions, transfers);
         }
+    }
+
+    private void buildSingleEvent(JsonNode root, String operationId, Set<String> existing,
+                                  List<WalletTransaction> walletTransactions, List<Transfer> transfers) {
+        long memberWalletId   = root.path("memberWalletId").asLong();
+        long leaderWalletId   = root.path("leaderWalletId").asLong();
+        long amount           = root.path("amount").asLong();
+
+        Wallet memberWallet = walletRepository.getReferenceById(memberWalletId);
+        Wallet leaderWallet = walletRepository.getReferenceById(leaderWalletId);
+        UserSettlement us   = userSettlementRepository.getReferenceById(root.path("userSettlementId").asLong());
+
+        WalletTransactionStatus status = resolveStatus(root.path("type").asText("SUCCESS"));
+
+        appendIfNew(existing, operationId + OperationIdUtil.OUTGOING_SUFFIX,
+                TransactionType.OUTGOING, memberWallet, leaderWallet, amount, status,
+                us.getUserSettlementId(), walletTransactions, transfers);
+
+        appendIfNew(existing, operationId + OperationIdUtil.INCOMING_SUFFIX,
+                TransactionType.INCOMING, leaderWallet, memberWallet, amount, status,
+                us.getUserSettlementId(), walletTransactions, transfers);
+    }
+
+    private WalletTransactionStatus resolveStatus(String type) {
+        return "SUCCESS".equals(type) ? WalletTransactionStatus.COMPLETED : WalletTransactionStatus.FAILED;
+    }
+
+    private void appendIfNew(Set<String> existing, String txOperationId,
+                             TransactionType txType, Wallet wallet, Wallet targetWallet,
+                             long amount, WalletTransactionStatus status, long userSettlementId,
+                             List<WalletTransaction> walletTransactions, List<Transfer> transfers) {
+        if (existing.contains(txOperationId)) return;
+
+        WalletTransaction tx = WalletTransaction.builder()
+                .operationId(txOperationId)
+                .type(txType)
+                .wallet(wallet)
+                .targetWallet(targetWallet)
+                .amount(amount)
+                .balance(wallet.getPostedBalance())
+                .walletTransactionStatus(status)
+                .build();
+        walletTransactions.add(tx);
+
+        Transfer transfer = Transfer.builder()
+                .userSettlementId(userSettlementId)
+                .walletTransaction(tx)
+                .build();
+        transfers.add(transfer);
+        tx.updateTransfer(transfer);
     }
 
     private void saveWalletTransactions(List<WalletTransaction> walletTransactions) {
         if (walletTransactions.isEmpty()) return;
+        saveBulkOrFallback(walletTransactions);
+    }
+
+    private void saveBulkOrFallback(List<WalletTransaction> walletTransactions) {
         try {
             walletTransactionRepository.saveAll(walletTransactions);
             walletTransactionRepository.flush();
@@ -160,24 +163,30 @@ public class LedgerWriter {
     private void saveTransfers(List<Transfer> transfers) {
         if (transfers.isEmpty()) return;
         try {
-            for (int i = 0; i < transfers.size(); i += TRANSFER_BATCH_SIZE) {
-                int endIndex = Math.min(i + TRANSFER_BATCH_SIZE, transfers.size());
-                transferRepository.saveAll(transfers.subList(i, endIndex));
-            }
-            transferRepository.flush();
+            saveTransfersInBatches(transfers);
         } catch (DataIntegrityViolationException dup) {
             log.warn("Transfer 배치 저장 중 중복 감지, 개별 저장으로 전환: {}", dup.getMessage());
             insertTransfersIndividually(transfers);
         }
     }
 
+    private void saveTransfersInBatches(List<Transfer> transfers) {
+        for (int i = 0; i < transfers.size(); i += TRANSFER_BATCH_SIZE) {
+            int endIndex = Math.min(i + TRANSFER_BATCH_SIZE, transfers.size());
+            transferRepository.saveAll(transfers.subList(i, endIndex));
+        }
+        transferRepository.flush();
+    }
+
     private void insertTransfersIndividually(List<Transfer> transfers) {
-        for (Transfer transfer : transfers) {
-            try {
-                transferRepository.saveAndFlush(transfer);
-            } catch (DataIntegrityViolationException ignored) {
-                log.debug("Transfer 중복 스킵: userSettlementId={}", transfer.getUserSettlementId());
-            }
+        transfers.forEach(this::saveTransferIgnoringDuplicate);
+    }
+
+    private void saveTransferIgnoringDuplicate(Transfer transfer) {
+        try {
+            transferRepository.saveAndFlush(transfer);
+        } catch (DataIntegrityViolationException ignored) {
+            log.debug("Transfer 중복 스킵: userSettlementId={}", transfer.getUserSettlementId());
         }
     }
 
@@ -195,13 +204,16 @@ public class LedgerWriter {
                         walletTransactions.stream().map(WalletTransaction::getOperationId).collect(Collectors.toSet())
                 )
         );
-        for (WalletTransaction tx : walletTransactions) {
-            if (existing.contains(tx.getOperationId())) continue;
-            try {
-                walletTransactionRepository.saveAndFlush(tx);
-            } catch (DataIntegrityViolationException ignored) {
-                // 동시경합으로 중복키면 스킵
-            }
+        walletTransactions.stream()
+                .filter(tx -> !existing.contains(tx.getOperationId()))
+                .forEach(this::saveTransactionIgnoringDuplicate);
+    }
+
+    private void saveTransactionIgnoringDuplicate(WalletTransaction tx) {
+        try {
+            walletTransactionRepository.saveAndFlush(tx);
+        } catch (DataIntegrityViolationException ignored) {
+            // 동시경합으로 중복키면 스킵
         }
     }
 }

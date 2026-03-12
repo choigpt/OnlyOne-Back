@@ -135,24 +135,42 @@ public class FeedQueryService {
         String pageSuffix = userId + ":" + pageable.getPageNumber() + ":" + pageable.getPageSize();
 
         // 1) result 캐시 확인
-        String resultKey = cacheable ? keyPrefix + pageSuffix : null;
-        List<FeedOverviewDto> cachedResult = cache.getResult(resultKey);
+        List<FeedOverviewDto> cachedResult = getCachedResult(keyPrefix, pageSuffix, cacheable);
         if (cachedResult != null) return cachedResult;
 
         // 2) pass1 캐시 확인 → DB fallback
-        String pass1Key = cacheable ? keyPrefix + "p1:" + pageSuffix : null;
-        List<FeedIdWithCounts> pass1 = cacheable ? cache.getPass1(pass1Key) : null;
-
-        if (pass1 == null) {
-            pass1 = pass1Fetcher.get();
-            if (pass1.isEmpty()) return Collections.emptyList();
-            if (cacheable) cache.putPass1(pass1Key, pass1);
-        }
+        List<FeedIdWithCounts> pass1 = resolvePass1(keyPrefix, pageSuffix, cacheable, pass1Fetcher);
+        if (pass1.isEmpty()) return Collections.emptyList();
 
         // 3) 렌더링 + result 캐시 저장
         List<FeedOverviewDto> result = renderService.buildOverviewList(pass1, userId);
-        if (cacheable) cache.putResult(resultKey, result);
+        if (cacheable) cache.putResult(keyPrefix + pageSuffix, result);
         return result;
+    }
+
+    /** result 캐시 조회. 캐시 대상이 아니면 null 반환. */
+    private List<FeedOverviewDto> getCachedResult(String keyPrefix, String pageSuffix, boolean cacheable) {
+        if (!cacheable) return null;
+        return cache.getResult(keyPrefix + pageSuffix);
+    }
+
+    /** pass1 캐시 조회 → 미스 시 DB 조회 후 캐시 저장. */
+    private List<FeedIdWithCounts> resolvePass1(String keyPrefix, String pageSuffix, boolean cacheable,
+                                                 Supplier<List<FeedIdWithCounts>> pass1Fetcher) {
+        if (cacheable) {
+            String pass1Key = keyPrefix + "p1:" + pageSuffix;
+            List<FeedIdWithCounts> cached = cache.getPass1(pass1Key);
+            if (cached != null) return cached;
+            return fetchAndCachePass1(pass1Key, pass1Fetcher);
+        }
+        return pass1Fetcher.get();
+    }
+
+    /** DB에서 pass1을 조회하고 결과가 비어있지 않으면 캐시에 저장. */
+    private List<FeedIdWithCounts> fetchAndCachePass1(String pass1Key, Supplier<List<FeedIdWithCounts>> pass1Fetcher) {
+        List<FeedIdWithCounts> pass1 = pass1Fetcher.get();
+        if (!pass1.isEmpty()) cache.putPass1(pass1Key, pass1);
+        return pass1;
     }
 
     private FeedDetailResponseDto buildDetailFromCache(DetailCacheEntry cached, Long feedId, Long currentUserId) {

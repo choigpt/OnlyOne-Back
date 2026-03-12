@@ -65,49 +65,59 @@ public class RateLimitFilter extends OncePerRequestFilter {
     protected void doFilterInternal(HttpServletRequest request,
                                     HttpServletResponse response,
                                     FilterChain filterChain) throws ServletException, IOException {
-        String clientIp = getClientIp(request);
-        String path = request.getRequestURI();
-
-        if (isWebSocketPath(path)) {
+        if (isWebSocketPath(request.getRequestURI())) {
             filterChain.doFilter(request, response);
             return;
         }
 
-        boolean isAuthPath = isAuthPath(path);
-
-        String key = isAuthPath ? "auth:" + clientIp : "general:" + clientIp;
-        long windowMs = isAuthPath ? AUTH_WINDOW_MS : GENERAL_WINDOW_MS;
-        int maxRequests = isAuthPath ? authRequestsPer30s : requestsPerMinute;
-
-        if (checkAndRecordRequest(key, windowMs, maxRequests)) {
-            log.warn("Rate limit exceeded for IP: {}, path: {}", clientIp, path);
-            response.setStatus(HttpStatus.TOO_MANY_REQUESTS.value());
-            response.setContentType(MediaType.APPLICATION_JSON_VALUE);
-            response.getWriter().write("{\"error\":\"Too many requests. Please try again later.\"}");
+        if (isRateLimited(request)) {
+            rejectWithTooManyRequests(request, response);
             return;
         }
 
         filterChain.doFilter(request, response);
     }
 
-    private boolean checkAndRecordRequest(String key, long windowMs, int maxRequests) {
-        long now = System.currentTimeMillis();
+    private boolean isRateLimited(HttpServletRequest request) {
+        String clientIp = getClientIp(request);
+        boolean authPath = isAuthPath(request.getRequestURI());
 
-        // 키 수 상한 초과 시 새 키 추가 차단 (기존 키만 허용)
-        if (requestCounts.size() >= MAX_TRACKED_KEYS && !requestCounts.containsKey(key)) {
-            log.warn("Rate limit 추적 키 상한 도달 ({}), 새 IP 추적 건너뜀: {}", MAX_TRACKED_KEYS, key);
+        String key = authPath ? "auth:" + clientIp : "general:" + clientIp;
+        long windowMs = authPath ? AUTH_WINDOW_MS : GENERAL_WINDOW_MS;
+        int maxRequests = authPath ? authRequestsPer30s : requestsPerMinute;
+
+        return checkAndRecordRequest(key, windowMs, maxRequests);
+    }
+
+    private void rejectWithTooManyRequests(HttpServletRequest request,
+                                           HttpServletResponse response) throws IOException {
+        log.warn("Rate limit exceeded for IP: {}, path: {}", getClientIp(request), request.getRequestURI());
+        response.setStatus(HttpStatus.TOO_MANY_REQUESTS.value());
+        response.setContentType(MediaType.APPLICATION_JSON_VALUE);
+        response.getWriter().write("{\"error\":\"Too many requests. Please try again later.\"}");
+    }
+
+    private boolean checkAndRecordRequest(String key, long windowMs, int maxRequests) {
+        if (isNewKeyOverCapacity(key)) {
             return true;
         }
 
         Deque<Long> timestamps = requestCounts.computeIfAbsent(key, k -> new ConcurrentLinkedDeque<>());
+        return recordAndCheckLimit(timestamps, windowMs, maxRequests);
+    }
 
+    private boolean isNewKeyOverCapacity(String key) {
+        if (requestCounts.size() < MAX_TRACKED_KEYS || requestCounts.containsKey(key)) {
+            return false;
+        }
+        log.warn("Rate limit 추적 키 상한 도달 ({}), 새 IP 추적 건너뜀: {}", MAX_TRACKED_KEYS, key);
+        return true;
+    }
+
+    private boolean recordAndCheckLimit(Deque<Long> timestamps, long windowMs, int maxRequests) {
+        long now = System.currentTimeMillis();
         synchronized (timestamps) {
-            // Remove expired entries
-            while (!timestamps.isEmpty() && now - timestamps.peekFirst() > windowMs) {
-                timestamps.pollFirst();
-            }
-
-            // Atomically check-then-act: add first, then check if over limit
+            removeExpiredEntries(timestamps, now, windowMs);
             timestamps.addLast(now);
             return timestamps.size() > maxRequests;
         }
@@ -117,20 +127,28 @@ public class RateLimitFilter extends OncePerRequestFilter {
         long now = System.currentTimeMillis();
         int removed = 0;
         for (var it = requestCounts.entrySet().iterator(); it.hasNext(); ) {
-            var entry = it.next();
-            Deque<Long> deque = entry.getValue();
-            synchronized (deque) {
-                // 만료된 타임스탬프 정리
-                while (!deque.isEmpty() && now - deque.peekFirst() > GENERAL_WINDOW_MS) {
-                    deque.pollFirst();
-                }
-                // 빈 deque 엔트리 제거
-                if (deque.isEmpty()) {
-                    it.remove();
-                    removed++;
-                }
+            if (evictIfStale(it.next().getValue(), now)) {
+                it.remove();
+                removed++;
             }
         }
+        logEvictionResult(removed);
+    }
+
+    private boolean evictIfStale(Deque<Long> deque, long now) {
+        synchronized (deque) {
+            removeExpiredEntries(deque, now, GENERAL_WINDOW_MS);
+            return deque.isEmpty();
+        }
+    }
+
+    private void removeExpiredEntries(Deque<Long> timestamps, long now, long windowMs) {
+        while (!timestamps.isEmpty() && now - timestamps.peekFirst() > windowMs) {
+            timestamps.pollFirst();
+        }
+    }
+
+    private void logEvictionResult(int removed) {
         if (removed > 0) {
             log.debug("Rate limit cleanup: removed {} stale entries, remaining {}", removed, requestCounts.size());
         }
@@ -155,14 +173,16 @@ public class RateLimitFilter extends OncePerRequestFilter {
     }
 
     private String getClientIp(HttpServletRequest request) {
-        String xForwardedFor = request.getHeader("X-Forwarded-For");
-        if (xForwardedFor != null && !xForwardedFor.isEmpty()) {
-            return xForwardedFor.split(",")[0].trim();
+        String forwarded = extractHeader(request, "X-Forwarded-For");
+        if (forwarded != null) {
+            return forwarded.split(",")[0].trim();
         }
-        String xRealIp = request.getHeader("X-Real-IP");
-        if (xRealIp != null && !xRealIp.isEmpty()) {
-            return xRealIp;
-        }
-        return request.getRemoteAddr();
+        String realIp = extractHeader(request, "X-Real-IP");
+        return realIp != null ? realIp : request.getRemoteAddr();
+    }
+
+    private String extractHeader(HttpServletRequest request, String headerName) {
+        String value = request.getHeader(headerName);
+        return (value != null && !value.isEmpty()) ? value : null;
     }
 }

@@ -94,20 +94,22 @@ public class AuthService {
     // ========== PRIVATE HELPERS ==========
 
     private User findOrCreateUser(Long kakaoId, String kakaoAccessToken) {
-        Optional<User> existingUser = userRepository.findByKakaoId(kakaoId);
+        return userRepository.findByKakaoId(kakaoId)
+                .map(user -> updateExistingUser(user, kakaoAccessToken))
+                .orElseGet(() -> createNewKakaoUser(kakaoId, kakaoAccessToken));
+    }
 
-        if (existingUser.isEmpty()) {
-            return createNewKakaoUser(kakaoId, kakaoAccessToken);
-        }
-
-        User user = existingUser.get();
-        if (Status.INACTIVE.equals(user.getStatus())) {
-            throw new CustomException(UserErrorCode.USER_WITHDRAWN);
-        }
-
+    private User updateExistingUser(User user, String kakaoAccessToken) {
+        validateNotWithdrawn(user);
         user.updateKakaoAccessToken(kakaoAccessToken);
         userRepository.save(user);
         return user;
+    }
+
+    private void validateNotWithdrawn(User user) {
+        if (Status.INACTIVE.equals(user.getStatus())) {
+            throw new CustomException(UserErrorCode.USER_WITHDRAWN);
+        }
     }
 
     private User createNewKakaoUser(Long kakaoId, String kakaoAccessToken) {

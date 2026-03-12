@@ -47,99 +47,49 @@ public class NotificationBatchProcessor {
     private final AtomicReference<CompletableFuture<Void>> currentBatchFuture =
             new AtomicReference<>(CompletableFuture.completedFuture(null));
 
-    // ========== 이벤트 수신 ==========
+    // ── 이벤트 수신 ──
 
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void onNotificationCreated(NotificationCreatedEvent event) {
         if (shuttingDown) return;
 
         Long userId = event.userId();
-
-        if (!deliveryPort.isUserReachable(userId)) {
-            undeliveredCache.add(event);
-            log.debug("오프라인 사용자 → 캐시 적재: userId={}", userId);
-            return;
+        if (deliveryPort.isUserReachable(userId)) {
+            enqueueNotification(userId, event);
+        } else {
+            cacheForOfflineUser(userId, event);
         }
-
-        enqueueNotification(userId, event);
     }
 
-    // ========== 주기적 배치 처리 ==========
+    // ── 주기적 배치 처리 ──
 
     @Scheduled(fixedDelayString = "${app.notification.batch-processing-interval:100}")
     public void processBatch() {
         if (shuttingDown || pendingQueues.isEmpty()) return;
-        if (!currentBatchFuture.get().isDone()) {
-            log.debug("이전 배치 진행 중, 스킵");
-            return;
-        }
+        if (!tryAcquireBatchLock()) return;
 
-        // sentinel로 원자적 check-then-act: 다른 스레드가 동시에 진입하면 CAS 실패
-        CompletableFuture<Void> sentinel = new CompletableFuture<>();
-        CompletableFuture<Void> previous = currentBatchFuture.get();
-        if (!previous.isDone() || !currentBatchFuture.compareAndSet(previous, sentinel)) {
-            return;
-        }
-
-        List<CompletableFuture<Void>> sendFutures = new ArrayList<>();
-
-        for (Map.Entry<Long, BlockingQueue<NotificationCreatedEvent>> entry : new ArrayList<>(pendingQueues.entrySet())) {
-            Long userId = entry.getKey();
-            BlockingQueue<NotificationCreatedEvent> queue = entry.getValue();
-
-            if (!deliveryPort.isUserReachable(userId)) {
-                pendingQueues.remove(userId);
-                continue;
-            }
-
-            List<NotificationCreatedEvent> batch = drainQueue(queue);
-            if (!batch.isEmpty()) {
-                sendFutures.add(sendBatchToUser(userId, batch));
-            }
-            if (queue.isEmpty()) {
-                pendingQueues.remove(userId);
-            }
-        }
-
-        if (sendFutures.isEmpty()) {
-            sentinel.complete(null);
-        } else {
-            CompletableFuture<Void> batchFuture = CompletableFuture.allOf(sendFutures.toArray(CompletableFuture[]::new))
-                    .orTimeout(properties.getBatchTimeoutSeconds(), TimeUnit.SECONDS)
-                    .exceptionally(ex -> {
-                        log.warn("배치 타임아웃 또는 오류: {}", ex.getMessage());
-                        return null;
-                    });
-            batchFuture.whenComplete((v, ex) -> sentinel.complete(null));
-        }
+        CompletableFuture<Void> sentinel = currentBatchFuture.get();
+        List<CompletableFuture<Void>> sendFutures = drainAndSendAll();
+        completeSentinel(sentinel, sendFutures);
     }
 
-    // ========== 종료 처리 ==========
+    // ── 종료 처리 ──
 
     @PreDestroy
     public void shutdown() {
         log.info("NotificationBatchProcessor 종료 시작");
         shuttingDown = true;
-
-        try {
-            CompletableFuture<Void> pending = currentBatchFuture.get();
-            if (!pending.isDone()) {
-                log.info("진행 중인 배치 완료 대기...");
-                pending.get(properties.getBatchTimeoutSeconds(), TimeUnit.SECONDS);
-            }
-        } catch (Exception e) {
-            log.warn("배치 완료 대기 중 오류: {}", e.getMessage());
-        }
-
-        int remaining = pendingQueues.values().stream().mapToInt(BlockingQueue::size).sum();
-        if (remaining > 0) {
-            log.warn("미처리 알림 {}개 폐기", remaining);
-        }
-        pendingQueues.clear();
+        awaitCurrentBatch();
+        discardRemaining();
         log.info("NotificationBatchProcessor 종료 완료");
     }
 
-    // ========== 내부 메서드 ==========
+    // ── 이벤트 수신 helpers ──
+
+    private void cacheForOfflineUser(Long userId, NotificationCreatedEvent event) {
+        undeliveredCache.add(event);
+        log.debug("오프라인 사용자 → 캐시 적재: userId={}", userId);
+    }
 
     private void enqueueNotification(Long userId, NotificationCreatedEvent event) {
         BlockingQueue<NotificationCreatedEvent> queue = pendingQueues.computeIfAbsent(
@@ -152,11 +102,64 @@ public class NotificationBatchProcessor {
         }
     }
 
+    // ── 배치 처리 helpers ──
+
+    private boolean tryAcquireBatchLock() {
+        CompletableFuture<Void> previous = currentBatchFuture.get();
+        if (!previous.isDone()) {
+            log.debug("이전 배치 진행 중, 스킵");
+            return false;
+        }
+        CompletableFuture<Void> sentinel = new CompletableFuture<>();
+        return currentBatchFuture.compareAndSet(previous, sentinel);
+    }
+
+    private List<CompletableFuture<Void>> drainAndSendAll() {
+        List<CompletableFuture<Void>> sendFutures = new ArrayList<>();
+
+        for (Map.Entry<Long, BlockingQueue<NotificationCreatedEvent>> entry : new ArrayList<>(pendingQueues.entrySet())) {
+            processSingleUserQueue(entry.getKey(), entry.getValue(), sendFutures);
+        }
+        return sendFutures;
+    }
+
+    private void processSingleUserQueue(Long userId, BlockingQueue<NotificationCreatedEvent> queue,
+                                        List<CompletableFuture<Void>> sendFutures) {
+        if (!deliveryPort.isUserReachable(userId)) {
+            pendingQueues.remove(userId);
+            return;
+        }
+
+        List<NotificationCreatedEvent> batch = drainQueue(queue);
+        if (!batch.isEmpty()) {
+            sendFutures.add(sendBatchToUser(userId, batch));
+        }
+        if (queue.isEmpty()) {
+            pendingQueues.remove(userId);
+        }
+    }
+
+    private void completeSentinel(CompletableFuture<Void> sentinel, List<CompletableFuture<Void>> sendFutures) {
+        if (sendFutures.isEmpty()) {
+            sentinel.complete(null);
+            return;
+        }
+        CompletableFuture.allOf(sendFutures.toArray(CompletableFuture[]::new))
+                .orTimeout(properties.getBatchTimeoutSeconds(), TimeUnit.SECONDS)
+                .exceptionally(ex -> {
+                    log.warn("배치 타임아웃 또는 오류: {}", ex.getMessage());
+                    return null;
+                })
+                .whenComplete((v, ex) -> sentinel.complete(null));
+    }
+
     private List<NotificationCreatedEvent> drainQueue(BlockingQueue<NotificationCreatedEvent> queue) {
         List<NotificationCreatedEvent> batch = new ArrayList<>(properties.getBatchSize());
         queue.drainTo(batch, properties.getBatchSize());
         return batch;
     }
+
+    // ── 전송 ──
 
     private CompletableFuture<Void> sendBatchToUser(Long userId, List<NotificationCreatedEvent> events) {
         List<CompletableFuture<Long>> sendResults = events.stream()
@@ -192,5 +195,27 @@ public class NotificationBatchProcessor {
         } catch (Exception e) {
             log.warn("알림 전송 후 DB 반영 실패: userId={}, count={}", userId, sentIds.size(), e);
         }
+    }
+
+    // ── 종료 helpers ──
+
+    private void awaitCurrentBatch() {
+        try {
+            CompletableFuture<Void> pending = currentBatchFuture.get();
+            if (!pending.isDone()) {
+                log.info("진행 중인 배치 완료 대기...");
+                pending.get(properties.getBatchTimeoutSeconds(), TimeUnit.SECONDS);
+            }
+        } catch (Exception e) {
+            log.warn("배치 완료 대기 중 오류: {}", e.getMessage());
+        }
+    }
+
+    private void discardRemaining() {
+        int remaining = pendingQueues.values().stream().mapToInt(BlockingQueue::size).sum();
+        if (remaining > 0) {
+            log.warn("미처리 알림 {}개 폐기", remaining);
+        }
+        pendingQueues.clear();
     }
 }

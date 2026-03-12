@@ -37,29 +37,38 @@ public class SseMissedNotificationRecovery {
             return;
         }
         try {
-            // 1. Redis 캐시에서 오프라인 중 쌓인 알림 복구
-            List<NotificationItemDto> cached = undeliveredCache.popAll(userId);
-            if (!cached.isEmpty()) {
-                List<Long> sentIds = sendAllDirect(userId, cached);
-                if (!sentIds.isEmpty()) {
-                    storagePort.markDeliveredByIds(sentIds);
-                }
-                log.debug("캐시 복구: userId={}, sent={}/{}", userId, sentIds.size(), cached.size());
-            }
-
-            // 2. 캐시에 없는 오래된 미전달분은 DB에서 조회
-            List<NotificationItemDto> dbMissed = storagePort
-                    .findUndeliveredByUserId(userId, MAX_RECOVERY_SIZE);
-            if (!dbMissed.isEmpty()) {
-                List<Long> sentIds = sendAllDirect(userId, dbMissed);
-                if (!sentIds.isEmpty()) {
-                    storagePort.markDeliveredByIds(sentIds);
-                }
-                log.debug("DB 복구: userId={}, sent={}/{}", userId, sentIds.size(), dbMissed.size());
-            }
+            recoverFromCache(userId);
+            recoverFromDb(userId);
         } catch (Exception e) {
             log.warn("놓친 알림 복구 실패: userId={}", userId, e);
         }
+    }
+
+    private void recoverFromCache(Long userId) {
+        List<NotificationItemDto> cached = undeliveredCache.popAll(userId);
+        int sent = sendAndMark(userId, cached);
+        if (sent > 0) {
+            log.debug("캐시 복구: userId={}, sent={}/{}", userId, sent, cached.size());
+        }
+    }
+
+    private void recoverFromDb(Long userId) {
+        List<NotificationItemDto> dbMissed = storagePort
+                .findUndeliveredByUserId(userId, MAX_RECOVERY_SIZE);
+        int sent = sendAndMark(userId, dbMissed);
+        if (sent > 0) {
+            log.debug("DB 복구: userId={}, sent={}/{}", userId, sent, dbMissed.size());
+        }
+    }
+
+    private int sendAndMark(Long userId, List<NotificationItemDto> items) {
+        if (items.isEmpty()) return 0;
+
+        List<Long> sentIds = sendAllDirect(userId, items);
+        if (!sentIds.isEmpty()) {
+            storagePort.markDeliveredByIds(sentIds);
+        }
+        return sentIds.size();
     }
 
     private List<Long> sendAllDirect(Long userId, List<NotificationItemDto> missed) {

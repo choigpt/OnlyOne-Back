@@ -100,15 +100,7 @@ public class GlobalExceptionHandler {
     public ResponseEntity<CommonResponse<ErrorResponse>> handleConstraintViolationException(
             ConstraintViolationException e, HttpServletRequest request) {
         logError(request, INVALID_INPUT_VALUE, e);
-
-        Map<String, String> validationErrors = new HashMap<>();
-        e.getConstraintViolations().forEach(violation -> {
-            String propertyPath = violation.getPropertyPath().toString();
-            String fieldName = propertyPath.substring(propertyPath.lastIndexOf('.') + 1);
-            validationErrors.put(fieldName, violation.getMessage());
-        });
-
-        return validationErrorResponse(INVALID_INPUT_VALUE, validationErrors);
+        return validationErrorResponse(INVALID_INPUT_VALUE, collectConstraintViolations(e));
     }
 
     @ExceptionHandler(IllegalArgumentException.class)
@@ -133,20 +125,7 @@ public class GlobalExceptionHandler {
         java.io.IOException.class
     })
     public ResponseEntity<Void> handleClientDisconnection(Exception e, HttpServletRequest request) {
-        String uri = request.getRequestURI();
-        String method = request.getMethod();
-
-        if (e.getMessage() != null &&
-            (e.getMessage().contains("Broken pipe") ||
-             e.getMessage().contains("Connection reset") ||
-             e.getMessage().contains("ClientAbortException"))) {
-            log.debug("클라이언트 연결 중단 [{}] {} - {}: {}",
-                     method, uri, e.getClass().getSimpleName(), e.getMessage());
-        } else {
-            log.warn("클라이언트 통신 오류 [{}] {} - {}: {}",
-                    method, uri, e.getClass().getSimpleName(), e.getMessage());
-        }
-
+        logClientDisconnection(e, request.getMethod(), request.getRequestURI());
         return ResponseEntity.status(HttpStatus.NO_CONTENT).build();
     }
 
@@ -162,11 +141,7 @@ public class GlobalExceptionHandler {
     public ResponseEntity<?> handleException(Exception e, HttpServletRequest request) {
         logError(request, INTERNAL_SERVER_ERROR, e);
 
-        String accept = request.getHeader("Accept");
-        String contentType = request.getContentType();
-
-        if ((accept != null && accept.contains("text/event-stream")) ||
-            (contentType != null && contentType.contains("text/event-stream"))) {
+        if (isSseRequest(request)) {
             log.warn("SSE 요청에서 예외 발생, 연결 종료: {}", e.getMessage());
             return ResponseEntity.status(HttpStatus.NO_CONTENT).build();
         }
@@ -211,5 +186,41 @@ public class GlobalExceptionHandler {
                 e.getMessage(),
                 e
         );
+    }
+
+    private boolean isSseRequest(HttpServletRequest request) {
+        return containsEventStream(request.getHeader("Accept"))
+                || containsEventStream(request.getContentType());
+    }
+
+    private boolean containsEventStream(String headerValue) {
+        return headerValue != null && headerValue.contains("text/event-stream");
+    }
+
+    private void logClientDisconnection(Exception e, String method, String uri) {
+        if (isKnownClientDisconnect(e.getMessage())) {
+            log.debug("클라이언트 연결 중단 [{}] {} - {}: {}",
+                     method, uri, e.getClass().getSimpleName(), e.getMessage());
+        } else {
+            log.warn("클라이언트 통신 오류 [{}] {} - {}: {}",
+                    method, uri, e.getClass().getSimpleName(), e.getMessage());
+        }
+    }
+
+    private boolean isKnownClientDisconnect(String message) {
+        return message != null
+                && (message.contains("Broken pipe")
+                    || message.contains("Connection reset")
+                    || message.contains("ClientAbortException"));
+    }
+
+    private Map<String, String> collectConstraintViolations(ConstraintViolationException e) {
+        Map<String, String> validationErrors = new HashMap<>();
+        e.getConstraintViolations().forEach(violation -> {
+            String propertyPath = violation.getPropertyPath().toString();
+            String fieldName = propertyPath.substring(propertyPath.lastIndexOf('.') + 1);
+            validationErrors.put(fieldName, violation.getMessage());
+        });
+        return validationErrors;
     }
 }

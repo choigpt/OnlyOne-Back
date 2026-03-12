@@ -94,31 +94,40 @@ public class FeedRepositoryCustomImpl implements FeedRepositoryCustom {
             List<Long> clubIds, Pageable pageable, int chunkSize) {
         int limit = (int) pageable.getOffset() + pageable.getPageSize();
 
-        List<FeedIdWithCounts> merged = new ArrayList<>();
-        for (int i = 0; i < clubIds.size(); i += chunkSize) {
-            List<Long> chunk = clubIds.subList(i, Math.min(i + chunkSize, clubIds.size()));
-
-            List<FeedIdWithCounts> chunkResult = queryFactory
-                    .select(Projections.constructor(FeedIdWithCounts.class,
-                            feed.feedId,
-                            feed.likeCount,
-                            feed.commentCount))
-                    .from(feed)
-                    .where(feed.club.clubId.in(chunk))
-                    .orderBy(feed.feedId.desc())
-                    .limit(limit)
-                    .fetch();
-
-            merged.addAll(chunkResult);
-        }
+        List<FeedIdWithCounts> merged = fetchChunkedFeedIds(clubIds, chunkSize, limit);
 
         // 병합 후 재정렬 + 페이지네이션 (feedId DESC ≈ createdAt DESC)
         merged.sort(Comparator.comparing(FeedIdWithCounts::feedId).reversed());
+        return sliceByPageable(merged, pageable);
+    }
 
+    private List<FeedIdWithCounts> fetchChunkedFeedIds(List<Long> clubIds, int chunkSize, int limit) {
+        List<FeedIdWithCounts> merged = new ArrayList<>();
+        for (int i = 0; i < clubIds.size(); i += chunkSize) {
+            List<Long> chunk = clubIds.subList(i, Math.min(i + chunkSize, clubIds.size()));
+            merged.addAll(fetchFeedIdsByClubIds(chunk, limit));
+        }
+        return merged;
+    }
+
+    private List<FeedIdWithCounts> fetchFeedIdsByClubIds(List<Long> clubIds, int limit) {
+        return queryFactory
+                .select(Projections.constructor(FeedIdWithCounts.class,
+                        feed.feedId,
+                        feed.likeCount,
+                        feed.commentCount))
+                .from(feed)
+                .where(feed.club.clubId.in(clubIds))
+                .orderBy(feed.feedId.desc())
+                .limit(limit)
+                .fetch();
+    }
+
+    private List<FeedIdWithCounts> sliceByPageable(List<FeedIdWithCounts> list, Pageable pageable) {
         int fromIndex = (int) pageable.getOffset();
-        int toIndex = Math.min(fromIndex + pageable.getPageSize(), merged.size());
-        if (fromIndex >= merged.size()) return List.of();
-        return merged.subList(fromIndex, toIndex);
+        if (fromIndex >= list.size()) return List.of();
+        int toIndex = Math.min(fromIndex + pageable.getPageSize(), list.size());
+        return list.subList(fromIndex, toIndex);
     }
 
     // ── 개인 피드 cursor 기반 (OFFSET 제거) ──
@@ -227,34 +236,49 @@ public class FeedRepositoryCustomImpl implements FeedRepositoryCustom {
         if (clubIds.isEmpty()) return List.of();
 
         // 클럽별 개별 쿼리 실행 후 Java에서 병합 (prepared statement 캐싱 활용)
-        List<FeedIdWithCounts> merged = new ArrayList<>();
         String sql = cursor != null ? PERSONAL_CURSOR_SQL_TEMPLATE : PERSONAL_SQL_TEMPLATE;
+        List<FeedIdWithCounts> merged = fetchPerClubFeedIds(clubIds, sql, cursor, limit);
 
+        return sortAndLimit(merged, limit);
+    }
+
+    private List<FeedIdWithCounts> fetchPerClubFeedIds(
+            List<Long> clubIds, String sql, Long cursor, int limit) {
+        List<FeedIdWithCounts> merged = new ArrayList<>();
         for (Number clubIdRaw : clubIds) {
-            long clubId = clubIdRaw.longValue();
-            Query query = entityManager.createNativeQuery(sql);
-            if (cursor != null) {
-                query.setParameter(1, clubId);
-                query.setParameter(2, cursor);
-                query.setParameter(3, limit);
-            } else {
-                query.setParameter(1, clubId);
-                query.setParameter(2, limit);
-            }
+            Query query = buildPersonalQuery(sql, clubIdRaw.longValue(), cursor, limit);
+            merged.addAll(mapRowsToFeedIdWithCounts(query));
+        }
+        return merged;
+    }
 
-            @SuppressWarnings("unchecked")
-            List<Object[]> rows = query.getResultList();
-            for (Object[] r : rows) {
-                merged.add(new FeedIdWithCounts(
+    private Query buildPersonalQuery(String sql, long clubId, Long cursor, int limit) {
+        Query query = entityManager.createNativeQuery(sql);
+        if (cursor != null) {
+            query.setParameter(1, clubId);
+            query.setParameter(2, cursor);
+            query.setParameter(3, limit);
+        } else {
+            query.setParameter(1, clubId);
+            query.setParameter(2, limit);
+        }
+        return query;
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<FeedIdWithCounts> mapRowsToFeedIdWithCounts(Query query) {
+        List<Object[]> rows = query.getResultList();
+        return rows.stream()
+                .map(r -> new FeedIdWithCounts(
                         ((Number) r[0]).longValue(),
                         ((Number) r[1]).longValue(),
-                        ((Number) r[2]).longValue()));
-            }
-        }
+                        ((Number) r[2]).longValue()))
+                .toList();
+    }
 
-        // feedId DESC 정렬 후 limit 적용
-        merged.sort(Comparator.comparing(FeedIdWithCounts::feedId).reversed());
-        return merged.size() > limit ? merged.subList(0, limit) : merged;
+    private List<FeedIdWithCounts> sortAndLimit(List<FeedIdWithCounts> list, int limit) {
+        list.sort(Comparator.comparing(FeedIdWithCounts::feedId).reversed());
+        return list.size() > limit ? list.subList(0, limit) : list;
     }
 
     // ── 인기 피드 UNION ALL (IN절 제거 — 클럽별 score 인덱스 활용) ──
@@ -264,8 +288,14 @@ public class FeedRepositoryCustomImpl implements FeedRepositoryCustom {
             List<Long> clubIds, int limit) {
         if (clubIds.isEmpty()) return List.of();
 
+        String sql = buildPopularUnionAllSql(clubIds.size());
+        Query query = bindPopularQueryParams(sql, clubIds, limit);
+        return mapRowsToFeedIdWithCounts(query);
+    }
+
+    private String buildPopularUnionAllSql(int clubCount) {
         StringBuilder sql = new StringBuilder("SELECT feed_id, like_count, comment_count FROM (\n");
-        for (int i = 0; i < clubIds.size(); i++) {
+        for (int i = 0; i < clubCount; i++) {
             if (i > 0) sql.append(" UNION ALL\n");
             sql.append("(SELECT feed_id, like_count, comment_count FROM feed WHERE club_id = :club")
                .append(i)
@@ -273,21 +303,16 @@ public class FeedRepositoryCustomImpl implements FeedRepositoryCustom {
                .append(" ORDER BY popularity_score DESC LIMIT :lim)");
         }
         sql.append("\n) t ORDER BY feed_id DESC LIMIT :lim");
+        return sql.toString();
+    }
 
-        Query query = entityManager.createNativeQuery(sql.toString());
+    private Query bindPopularQueryParams(String sql, List<Long> clubIds, int limit) {
+        Query query = entityManager.createNativeQuery(sql);
         for (int i = 0; i < clubIds.size(); i++) {
             query.setParameter("club" + i, ((Number) clubIds.get(i)).longValue());
         }
         query.setParameter("lim", limit);
-
-        @SuppressWarnings("unchecked")
-        List<Object[]> rows = query.getResultList();
-        return rows.stream()
-                .map(r -> new FeedIdWithCounts(
-                        ((Number) r[0]).longValue(),
-                        ((Number) r[1]).longValue(),
-                        ((Number) r[2]).longValue()))
-                .toList();
+        return query;
     }
 
     // ── 리포스트 카운트 배치 ──
