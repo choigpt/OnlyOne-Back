@@ -33,7 +33,7 @@ public class SearchController {
     @Operation(summary = "모임 검색 (관심사)", description = "관심사 기반으로 모임을 검색합니다.")
     @GetMapping("/interests")
     public ResponseEntity<CommonResponse<List<ClubResponseDto>>> searchClubByInterest(@RequestParam Long interestId,
-                                                  @RequestParam(defaultValue = "0") @Min(0) int page) {
+                                                  @RequestParam(defaultValue = "0") @Min(0) @Max(1000) int page) {
         return ResponseEntity.ok(CommonResponse.success(searchService.searchClubByInterest(interestId, page)));
     }
 
@@ -41,7 +41,7 @@ public class SearchController {
     @GetMapping("/locations")
     public ResponseEntity<CommonResponse<List<ClubResponseDto>>> searchClubByLocation(@RequestParam String city,
                                                   @RequestParam String district,
-                                                  @RequestParam(defaultValue = "0") @Min(0) int page) {
+                                                  @RequestParam(defaultValue = "0") @Min(0) @Max(1000) int page) {
         return ResponseEntity.ok(CommonResponse.success(searchService.searchClubByLocation(city, district, page)));
     }
 
@@ -59,7 +59,7 @@ public class SearchController {
             @RequestParam(required = false) String district,
             @RequestParam(required = false) Long interestId,
             @RequestParam(defaultValue = "MEMBER_COUNT") SearchFilterDto.SortType sortBy,
-            @RequestParam(defaultValue = "0") @Min(0) int page) {
+            @RequestParam(defaultValue = "0") @Min(0) @Max(1000) int page) {
         
         SearchFilterDto filter = new SearchFilterDto(keyword, city, district, interestId, sortBy, page);
         return ResponseEntity.ok(CommonResponse.success(searchService.searchClubs(filter)));

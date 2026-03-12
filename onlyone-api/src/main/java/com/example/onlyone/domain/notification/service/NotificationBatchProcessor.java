@@ -23,6 +23,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * 알림 배치 전송 처리기
@@ -43,7 +44,8 @@ public class NotificationBatchProcessor {
 
     private final Map<Long, BlockingQueue<NotificationCreatedEvent>> pendingQueues = new ConcurrentHashMap<>();
     private volatile boolean shuttingDown = false;
-    private volatile CompletableFuture<Void> currentBatchFuture = CompletableFuture.completedFuture(null);
+    private final AtomicReference<CompletableFuture<Void>> currentBatchFuture =
+            new AtomicReference<>(CompletableFuture.completedFuture(null));
 
     // ========== 이벤트 수신 ==========
 
@@ -67,8 +69,15 @@ public class NotificationBatchProcessor {
     @Scheduled(fixedDelayString = "${app.notification.batch-processing-interval:100}")
     public void processBatch() {
         if (shuttingDown || pendingQueues.isEmpty()) return;
-        if (!currentBatchFuture.isDone()) {
+        if (!currentBatchFuture.get().isDone()) {
             log.debug("이전 배치 진행 중, 스킵");
+            return;
+        }
+
+        // sentinel로 원자적 check-then-act: 다른 스레드가 동시에 진입하면 CAS 실패
+        CompletableFuture<Void> sentinel = new CompletableFuture<>();
+        CompletableFuture<Void> previous = currentBatchFuture.get();
+        if (!previous.isDone() || !currentBatchFuture.compareAndSet(previous, sentinel)) {
             return;
         }
 
@@ -92,13 +101,16 @@ public class NotificationBatchProcessor {
             }
         }
 
-        if (!sendFutures.isEmpty()) {
-            currentBatchFuture = CompletableFuture.allOf(sendFutures.toArray(CompletableFuture[]::new))
+        if (sendFutures.isEmpty()) {
+            sentinel.complete(null);
+        } else {
+            CompletableFuture<Void> batchFuture = CompletableFuture.allOf(sendFutures.toArray(CompletableFuture[]::new))
                     .orTimeout(properties.getBatchTimeoutSeconds(), TimeUnit.SECONDS)
                     .exceptionally(ex -> {
                         log.warn("배치 타임아웃 또는 오류: {}", ex.getMessage());
                         return null;
                     });
+            batchFuture.whenComplete((v, ex) -> sentinel.complete(null));
         }
     }
 
@@ -110,9 +122,10 @@ public class NotificationBatchProcessor {
         shuttingDown = true;
 
         try {
-            if (!currentBatchFuture.isDone()) {
+            CompletableFuture<Void> pending = currentBatchFuture.get();
+            if (!pending.isDone()) {
                 log.info("진행 중인 배치 완료 대기...");
-                currentBatchFuture.get(properties.getBatchTimeoutSeconds(), TimeUnit.SECONDS);
+                pending.get(properties.getBatchTimeoutSeconds(), TimeUnit.SECONDS);
             }
         } catch (Exception e) {
             log.warn("배치 완료 대기 중 오류: {}", e.getMessage());

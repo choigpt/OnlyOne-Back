@@ -36,7 +36,8 @@ public enum FinanceErrorCode implements ErrorCode {
 
     // Outbox
     INVALID_TOPIC(400, "OUTBOX_400_1", "유효하지 않은 토픽입니다."),
-    INVALID_EVENT_PAYLOAD(422, "OUTBOX_422_1", "잘못된 이벤트 페이로드입니다.");
+    INVALID_EVENT_PAYLOAD(422, "OUTBOX_422_1", "잘못된 이벤트 페이로드입니다."),
+    OUTBOX_APPEND_FAILED(500, "OUTBOX_500_1", "Outbox 이벤트 저장에 실패했습니다.");
 
     private final int status;
     private final String code;

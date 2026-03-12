@@ -4,6 +4,8 @@ import com.example.onlyone.domain.feed.dto.response.FeedCommentResponseDto;
 import com.example.onlyone.domain.feed.dto.response.FeedOverviewDto;
 import com.example.onlyone.domain.feed.port.FeedStoragePort.FeedDetailItem;
 import com.example.onlyone.domain.feed.repository.FeedRepositoryCustom.FeedIdWithCounts;
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -13,7 +15,6 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -29,14 +30,27 @@ public class FeedCacheService {
     private static final int DEFAULT_PAGE_SIZE = 20;
 
     private static final Duration PASS1_CACHE_TTL = Duration.ofSeconds(30);
-    private static final long RESULT_CACHE_TTL_MS = 10_000;
-    private static final long DETAIL_CACHE_TTL_MS = 30_000;
+
     private static final int MAX_CACHE_SIZE = 2000;
+
+    private final Cache<String, List<FeedOverviewDto>> resultCache;
+    private final Cache<Long, DetailCacheEntry> detailCache;
 
     public FeedCacheService(StringRedisTemplate redis,
                             @Value("${app.feed.cache.enabled:false}") boolean enabled) {
         this.redis = redis;
         this.enabled = enabled;
+
+        this.resultCache = Caffeine.newBuilder()
+                .maximumSize(MAX_CACHE_SIZE)
+                .expireAfterWrite(Duration.ofSeconds(10))
+                .build();
+
+        this.detailCache = Caffeine.newBuilder()
+                .maximumSize(MAX_CACHE_SIZE)
+                .expireAfterWrite(Duration.ofSeconds(30))
+                .build();
+
         if (!enabled) {
             log.info("피드 캐시 비활성화 (app.feed.cache.enabled=false)");
         }
@@ -79,56 +93,41 @@ public class FeedCacheService {
         }
     }
 
-    // ── Overview Result (in-memory) ──
-
-    private record CachedResult(List<FeedOverviewDto> data, long expiresAt) {
-        boolean isExpired() { return System.currentTimeMillis() > expiresAt; }
-    }
-    private static final ConcurrentHashMap<String, CachedResult> resultCache = new ConcurrentHashMap<>();
+    // ── Overview Result (Caffeine in-memory) ──
 
     public List<FeedOverviewDto> getResult(String key) {
         if (!enabled || key == null) return null;
-        CachedResult cr = resultCache.get(key);
-        if (cr == null || cr.isExpired()) return null;
-        return cr.data();
+        return resultCache.getIfPresent(key);
     }
 
     public void putResult(String key, List<FeedOverviewDto> result) {
         if (!enabled || key == null) return;
-        evictIfFull(resultCache);
-        resultCache.put(key, new CachedResult(result, System.currentTimeMillis() + RESULT_CACHE_TTL_MS));
+        resultCache.put(key, result);
     }
 
-    // ── Detail (in-memory) ──
+    // ── Detail (Caffeine in-memory) ──
 
     record DetailCacheEntry(
             FeedDetailItem detail, List<String> imageUrls,
-            List<FeedCommentResponseDto> comments, long repostCount,
-            long expiresAt
-    ) {
-        boolean isExpired() { return System.currentTimeMillis() > expiresAt; }
-    }
-    private static final ConcurrentHashMap<Long, DetailCacheEntry> detailCache = new ConcurrentHashMap<>();
+            List<FeedCommentResponseDto> comments, long repostCount
+    ) {}
 
     public DetailCacheEntry getDetail(Long feedId) {
         if (!enabled) return null;
-        DetailCacheEntry entry = detailCache.get(feedId);
-        return (entry != null && !entry.isExpired()) ? entry : null;
+        return detailCache.getIfPresent(feedId);
     }
 
     public void putDetail(Long feedId, FeedDetailItem detail, List<String> imageUrls,
                           List<FeedCommentResponseDto> comments, long repostCount) {
         if (!enabled) return;
-        evictIfFull(detailCache);
-        detailCache.put(feedId, new DetailCacheEntry(detail, imageUrls, comments, repostCount,
-                System.currentTimeMillis() + DETAIL_CACHE_TTL_MS));
+        detailCache.put(feedId, new DetailCacheEntry(detail, imageUrls, comments, repostCount));
     }
 
     // ── Invalidation ──
 
     public void invalidateDetail(Long feedId) {
         if (!enabled) return;
-        detailCache.remove(feedId);
+        detailCache.invalidate(feedId);
     }
 
     public void invalidatePersonalFeedForUser(Long userId) {
@@ -148,7 +147,10 @@ public class FeedCacheService {
     }
 
     private void invalidateListCaches(String prefix, Long userId) {
-        // Redis 먼저 삭제 → in-memory 삭제 순서로 stale read window 최소화
+        // in-memory 먼저 삭제 → Redis 삭제 순서로 stale repopulation 방지
+        String resultPrefix = prefix + userId + ":";
+        resultCache.asMap().keySet().removeIf(k -> k.startsWith(resultPrefix));
+
         String pass1Prefix = prefix + "p1:" + userId + ":";
         List<String> keysToDelete = new ArrayList<>();
         for (int page = 0; page <= MAX_CACHEABLE_PAGE; page++) {
@@ -158,22 +160,6 @@ public class FeedCacheService {
             redis.delete(keysToDelete);
         } catch (Exception e) {
             log.debug("pass1 캐시 삭제 실패: {}", e.getMessage());
-        }
-
-        String resultPrefix = prefix + userId + ":";
-        resultCache.keySet().removeIf(k -> k.startsWith(resultPrefix));
-    }
-
-    // ── Eviction ──
-
-    private void evictIfFull(ConcurrentHashMap<?, ?> cache) {
-        if (cache.size() > MAX_CACHE_SIZE) {
-            cache.entrySet().removeIf(e -> {
-                Object v = e.getValue();
-                if (v instanceof CachedResult cr) return cr.isExpired();
-                if (v instanceof DetailCacheEntry dc) return dc.isExpired();
-                return false;
-            });
         }
     }
 }

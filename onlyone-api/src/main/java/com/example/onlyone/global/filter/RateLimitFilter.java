@@ -32,6 +32,7 @@ public class RateLimitFilter extends OncePerRequestFilter {
     private static final long AUTH_WINDOW_MS = 30_000L;
     private static final long GENERAL_WINDOW_MS = 60_000L;
     private static final long CLEANUP_INTERVAL_MINUTES = 5L;
+    private static final int MAX_TRACKED_KEYS = 50_000;
 
     private final ConcurrentHashMap<String, Deque<Long>> requestCounts = new ConcurrentHashMap<>();
     private ScheduledExecutorService cleanupScheduler;
@@ -91,6 +92,13 @@ public class RateLimitFilter extends OncePerRequestFilter {
 
     private boolean checkAndRecordRequest(String key, long windowMs, int maxRequests) {
         long now = System.currentTimeMillis();
+
+        // 키 수 상한 초과 시 새 키 추가 차단 (기존 키만 허용)
+        if (requestCounts.size() >= MAX_TRACKED_KEYS && !requestCounts.containsKey(key)) {
+            log.warn("Rate limit 추적 키 상한 도달 ({}), 새 IP 추적 건너뜀: {}", MAX_TRACKED_KEYS, key);
+            return true;
+        }
+
         Deque<Long> timestamps = requestCounts.computeIfAbsent(key, k -> new ConcurrentLinkedDeque<>());
 
         synchronized (timestamps) {

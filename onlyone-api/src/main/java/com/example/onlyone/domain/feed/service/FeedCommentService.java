@@ -46,11 +46,14 @@ public class FeedCommentService {
 
         FeedComment feedComment = requestDto.toEntity(feed, currentUser);
         feedCommentRepository.save(feedComment);
-        // comment_count 갱신을 TX 커밋 후 비동기로 처리 (feed row X-lock 제거)
+        // CommentCountEvent는 @TransactionalEventListener로 TX 커밋 후 Redis 버퍼링
         eventPublisher.publishEvent(new CommentCountEvent(feedId, 1));
+        log.info("댓글 생성: feedId={}, userId={}", feedId, currentUser.getUserId());
+    }
+
+    public void afterCreateComment(Long feedId) {
         engagementPublisher.publish(FeedEngagementEvent.comment(feedId, 1));
         cache.invalidateDetail(feedId);
-        log.info("댓글 생성: feedId={}, userId={}", feedId, currentUser.getUserId());
     }
 
     @Transactional
@@ -69,9 +72,12 @@ public class FeedCommentService {
 
         feedCommentRepository.delete(feedComment);
         eventPublisher.publishEvent(new CommentCountEvent(feedId, -1));
+        log.info("댓글 삭제: commentId={}, feedId={}, userId={}", commentId, feedId, userId);
+    }
+
+    public void afterDeleteComment(Long feedId) {
         engagementPublisher.publish(FeedEngagementEvent.comment(feedId, -1));
         cache.invalidateDetail(feedId);
-        log.info("댓글 삭제: commentId={}, feedId={}, userId={}", commentId, feedId, userId);
     }
 
     @Transactional(readOnly = true)

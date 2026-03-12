@@ -93,6 +93,7 @@ public class FeedController {
             @PathVariable Long clubId, @PathVariable Long feedId,
             @RequestBody @Valid FeedCommentRequestDto requestDto) {
         feedCommentService.createComment(clubId, feedId, requestDto);
+        feedCommentService.afterCreateComment(feedId);
         return ResponseEntity.status(HttpStatus.CREATED).body(CommonResponse.success(null));
     }
 
@@ -102,6 +103,7 @@ public class FeedController {
             @PathVariable Long clubId, @PathVariable Long feedId,
             @PathVariable Long commentId) {
         feedCommentService.deleteComment(clubId, feedId, commentId);
+        feedCommentService.afterDeleteComment(feedId);
         return ResponseEntity.ok(CommonResponse.success(null));
     }
 }

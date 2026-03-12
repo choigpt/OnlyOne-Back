@@ -208,25 +208,25 @@ aws:
   cloudfront:
     domain: ${AWS_CLOUDFRONT_DOMAIN:d1c3fg3ti7m8cn.cloudfront.net}
 
-# --- 카카오 OAuth ---
+# --- 카카오 OAuth (값은 .env에서 주입) ---
 Kakao:
   client:
-    id: ${KAKAO_CLIENT_ID:cb62270f81c3942b697f94401978d95b}
+    id: ${KAKAO_CLIENT_ID}
   redirect:
     uri: ${KAKAO_REDIRECT_URI:http://localhost:5173/kakao-callback}
 
-# --- JWT ---
+# --- JWT (값은 .env에서 주입) ---
 jwt:
-  secret: ${JWT_SECRET:7e9eeb12d176a2d72f554c6b096522b4e1a34d799727e45a96f192bbff2a2a851ede29ed24b10b6e6b1835ac94380e2469df99ff9713477bf4d43eeaa9cd16a3}
+  secret: ${JWT_SECRET}
   access-expiration: ${JWT_ACCESS_EXPIRATION:3600000}
   refresh-expiration: ${JWT_REFRESH_EXPIRATION:604800000}
 
-# --- 토스 결제 ---
+# --- 토스 결제 (값은 .env에서 주입) ---
 payment:
   toss:
-    client_key: ${TOSS_CLIENT_KEY:test_ck_yL0qZ4G1VOlG77j1njbProWb2MQY}
-    test_secret_api_key: ${TOSS_SECRET_API_KEY:test_sk_kYG57Eba3GbjeWJXBvjk8pWDOxmA}
-    security_key: ${TOSS_SECURITY_KEY:705394c7b81f84e2777acd2935f376d566fdf68ec38392bbab607771a5147bb0}
+    client_key: ${TOSS_CLIENT_KEY}
+    test_secret_api_key: ${TOSS_SECRET_API_KEY}
+    security_key: ${TOSS_SECURITY_KEY}
 
 # --- 앱 커스텀 설정 ---
 app:
@@ -429,7 +429,7 @@ aws:
     region: ap-northeast-2
     bucket: ${AWS_S3_BUCKET:buddkit-image}
   cloudfront:
-    domain: ${AWS_CLOUDFRONT_DOMAIN:d1c3fg3ti7m8cn.cloudfront.net}
+    domain: ${AWS_CLOUDFRONT_DOMAIN}
 
 # --- 앱 커스텀 설정 ---
 app:

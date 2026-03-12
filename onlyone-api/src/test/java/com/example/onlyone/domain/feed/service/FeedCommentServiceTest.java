@@ -98,6 +98,7 @@ class FeedCommentServiceTest {
                     .thenReturn(true);
 
             feedCommentService.createComment(club.getClubId(), feed.getFeedId(), dto);
+            feedCommentService.afterCreateComment(feed.getFeedId());
 
             verify(feedCommentRepository).save(any(FeedComment.class));
             verify(eventPublisher).publishEvent(any(FeedCommentService.CommentCountEvent.class));
@@ -147,6 +148,7 @@ class FeedCommentServiceTest {
             when(userService.getCurrentUserId()).thenReturn(user.getUserId());
 
             feedCommentService.deleteComment(club.getClubId(), feed.getFeedId(), comment.getFeedCommentId());
+            feedCommentService.afterDeleteComment(feed.getFeedId());
 
             verify(feedCommentRepository).delete(comment);
             verify(eventPublisher).publishEvent(any(FeedCommentService.CommentCountEvent.class));

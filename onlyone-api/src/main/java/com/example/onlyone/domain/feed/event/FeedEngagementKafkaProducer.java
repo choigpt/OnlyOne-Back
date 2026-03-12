@@ -34,7 +34,12 @@ public class FeedEngagementKafkaProducer {
         try {
             String payload = objectMapper.writeValueAsString(event);
             String key = String.valueOf(event.feedId());
-            kafkaTemplate.send(TOPIC, key, payload);
+            kafkaTemplate.send(TOPIC, key, payload)
+                    .whenComplete((result, ex) -> {
+                        if (ex != null) {
+                            log.error("Kafka engagement 전송 실패: feedId={}, type={}", event.feedId(), event.type(), ex);
+                        }
+                    });
             log.debug("Kafka engagement 발행: feedId={}, type={}", event.feedId(), event.type());
         } catch (JsonProcessingException e) {
             log.warn("Kafka engagement 직렬화 실패: feedId={}", event.feedId(), e);

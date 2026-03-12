@@ -30,6 +30,7 @@ public class FeedLikeService implements FeedLikeToggleService {
     private final FeedRepository feedRepository;
     private final UserService userService;
     private final FeedLikeWarmupService warmupService;
+    @SuppressWarnings("rawtypes")
     private final DefaultRedisScript<List> likeToggleScript;
     private final StringRedisTemplate redis;
     private final Clock clock;

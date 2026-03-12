@@ -1,8 +1,10 @@
 package com.example.onlyone.domain.settlement.service;
 
+import com.example.onlyone.domain.finance.exception.FinanceErrorCode;
 import com.example.onlyone.domain.settlement.event.OutboxEvent;
 import com.example.onlyone.domain.settlement.entity.OutboxStatus;
 import com.example.onlyone.domain.settlement.repository.OutboxRepository;
+import com.example.onlyone.global.exception.CustomException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -35,7 +37,7 @@ public class OutboxAppender {
                     .build();
             outboxRepository.save(e);
         } catch (Exception ex) {
-            throw new RuntimeException("Outbox append failed", ex);
+            throw new CustomException(FinanceErrorCode.OUTBOX_APPEND_FAILED);
         }
     }
 }

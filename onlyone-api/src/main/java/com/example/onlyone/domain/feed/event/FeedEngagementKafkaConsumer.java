@@ -16,6 +16,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Kafka "feed.engagement.v1" 토픽 Consumer.
@@ -40,6 +41,7 @@ public class FeedEngagementKafkaConsumer {
 
     /** feedId → 가중치 합산 델타 (like=1, comment=2) */
     private final ConcurrentHashMap<Long, AtomicInteger> buffer = new ConcurrentHashMap<>();
+    private final AtomicLong parseFailureCount = new AtomicLong(0);
 
     private static final String POPULAR_FEED_ZSET = "popular:realtime";
 
@@ -63,7 +65,9 @@ public class FeedEngagementKafkaConsumer {
                             .addAndGet(weight);
                 }
             } catch (Exception e) {
-                log.warn("engagement 이벤트 파싱 실패: offset={}", record.offset(), e);
+                long failures = parseFailureCount.incrementAndGet();
+                log.error("engagement 이벤트 파싱 실패 (skip, 누적={}): offset={}, value={}",
+                        failures, record.offset(), record.value(), e);
             }
         }
         ack.acknowledge();
@@ -95,7 +99,7 @@ public class FeedEngagementKafkaConsumer {
             try {
                 redis.opsForZSet().incrementScore(POPULAR_FEED_ZSET, String.valueOf(feedId), delta);
             } catch (Exception e) {
-                log.debug("Redis 랭킹 갱신 실패: feedId={}", feedId);
+                log.warn("Redis 랭킹 갱신 실패: feedId={}", feedId, e);
             }
         }
 

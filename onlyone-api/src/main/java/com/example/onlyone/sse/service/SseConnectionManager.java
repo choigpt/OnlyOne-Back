@@ -107,14 +107,12 @@ public class SseConnectionManager {
 
     public void clearAllConnections() {
         try {
-            activeConnections.keySet().forEach(userId -> {
-                SseConnection connection = activeConnections.remove(userId);
-                if (connection != null) {
-                    completeEmitterQuietly(connection.getEmitter());
-                    if (distributedRegistry != null) {
-                        distributedRegistry.unregister(userId);
-                    }
+            activeConnections.entrySet().removeIf(entry -> {
+                completeEmitterQuietly(entry.getValue().getEmitter());
+                if (distributedRegistry != null) {
+                    distributedRegistry.unregister(entry.getKey());
                 }
+                return true;
             });
         } catch (Exception e) {
             throw new CustomException(SseErrorCode.SSE_CLEANUP_FAILED);
@@ -136,17 +134,16 @@ public class SseConnectionManager {
             LocalDateTime cutoffTime = LocalDateTime.now().minusSeconds((sseTimeoutMillis + CLEANUP_GRACE_PERIOD_MS) / 1000);
             AtomicInteger cleaned = new AtomicInteger(0);
 
-            activeConnections.forEach((userId, connection) -> {
-                if (connection.getConnectionTime().isBefore(cutoffTime)) {
-                    SseConnection removed = activeConnections.remove(userId);
-                    if (removed != null) {
-                        completeEmitterQuietly(removed.getEmitter());
-                        if (distributedRegistry != null) {
-                            distributedRegistry.unregister(userId);
-                        }
-                        cleaned.incrementAndGet();
+            activeConnections.entrySet().removeIf(entry -> {
+                if (entry.getValue().getConnectionTime().isBefore(cutoffTime)) {
+                    completeEmitterQuietly(entry.getValue().getEmitter());
+                    if (distributedRegistry != null) {
+                        distributedRegistry.unregister(entry.getKey());
                     }
+                    cleaned.incrementAndGet();
+                    return true;
                 }
+                return false;
             });
 
             // 분산 레지스트리 TTL 갱신

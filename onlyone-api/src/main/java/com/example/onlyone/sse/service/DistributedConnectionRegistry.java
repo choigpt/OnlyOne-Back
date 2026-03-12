@@ -130,10 +130,16 @@ public class DistributedConnectionRegistry {
             redis.expire(instanceKey, KEY_TTL);
 
             Set<String> users = redis.opsForSet().members(instanceKey);
-            if (users != null) {
-                for (String userId : users) {
-                    redis.expire(USER_KEY_PREFIX + userId, KEY_TTL);
-                }
+            if (users != null && !users.isEmpty()) {
+                redis.executePipelined((org.springframework.data.redis.core.RedisCallback<Object>) connection -> {
+                    long ttlSeconds = KEY_TTL.getSeconds();
+                    for (String userId : users) {
+                        connection.keyCommands().expire(
+                                (USER_KEY_PREFIX + userId).getBytes(),
+                                ttlSeconds);
+                    }
+                    return null;
+                });
             }
         } catch (Exception e) {
             log.warn("분산 레지스트리 TTL 갱신 실패", e);

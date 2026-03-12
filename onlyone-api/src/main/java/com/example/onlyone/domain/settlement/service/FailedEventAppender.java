@@ -1,5 +1,6 @@
 package com.example.onlyone.domain.settlement.service;
 
+import com.example.onlyone.domain.finance.exception.FinanceErrorCode;
 import com.example.onlyone.domain.settlement.event.FailedSettlementContext;
 import com.example.onlyone.domain.settlement.event.OutboxEvent;
 import com.example.onlyone.domain.settlement.event.UserSettlementStatusEvent;
@@ -8,6 +9,7 @@ import com.example.onlyone.domain.settlement.entity.SettlementStatus;
 import com.example.onlyone.domain.settlement.util.OperationIdUtil;
 import com.example.onlyone.domain.settlement.repository.OutboxRepository;
 import com.example.onlyone.domain.settlement.repository.UserSettlementRepository;
+import com.example.onlyone.global.exception.CustomException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -59,7 +61,7 @@ public class FailedEventAppender {
 
             outboxRepository.save(event);
         } catch (Exception e) {
-            throw new RuntimeException("Failed to append FAILED event to Outbox", e);
+            throw new CustomException(FinanceErrorCode.OUTBOX_APPEND_FAILED);
         }
     }
 }

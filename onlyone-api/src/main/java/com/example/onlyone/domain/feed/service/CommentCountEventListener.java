@@ -50,10 +50,6 @@ public class CommentCountEventListener {
         Map<Object, Object> entries = stringRedisTemplate.opsForHash().entries(BUFFER_KEY);
         if (entries.isEmpty()) return;
 
-        // 스냅샷 후 즉시 삭제 (다음 이벤트는 새 키에 축적)
-        Set<Object> keys = entries.keySet();
-        stringRedisTemplate.opsForHash().delete(BUFFER_KEY, keys.toArray());
-
         // feedId → delta 변환
         Map<Long, Integer> deltas = new HashMap<>();
         for (Map.Entry<Object, Object> entry : entries.entrySet()) {
@@ -66,7 +62,11 @@ public class CommentCountEventListener {
             }
         }
 
-        if (deltas.isEmpty()) return;
+        if (deltas.isEmpty()) {
+            // 파싱 불가 엔트리만 남은 경우 정리
+            stringRedisTemplate.opsForHash().delete(BUFFER_KEY, entries.keySet().toArray());
+            return;
+        }
 
         // 단일 배치 UPDATE — CASE WHEN으로 여러 feed를 1회 X-lock으로 갱신
         StringBuilder sql = new StringBuilder("UPDATE feed SET comment_count = GREATEST(comment_count + CASE feed_id ");
@@ -84,9 +84,11 @@ public class CommentCountEventListener {
 
         try {
             int updated = jdbcTemplate.update(sql.toString());
+            // DB 반영 성공 후에만 버퍼 삭제 — 실패 시 다음 flush에서 재시도
+            stringRedisTemplate.opsForHash().delete(BUFFER_KEY, entries.keySet().toArray());
             log.debug("comment_count 배치 flush: feeds={}, updated={}", deltas.size(), updated);
         } catch (Exception e) {
-            log.error("comment_count 배치 flush 실패: feeds={}", deltas.size(), e);
+            log.error("comment_count 배치 flush 실패 (버퍼 유지, 다음 주기 재시도): feeds={}", deltas.size(), e);
         }
     }
 }
