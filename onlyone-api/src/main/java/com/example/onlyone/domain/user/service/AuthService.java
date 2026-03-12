@@ -83,9 +83,7 @@ public class AuthService {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new CustomException(UserErrorCode.USER_NOT_FOUND));
 
-        if (Status.INACTIVE.equals(user.getStatus())) {
-            throw new CustomException(UserErrorCode.USER_WITHDRAWN);
-        }
+        user.assertActive();
 
         String newAccessToken = jwtTokenProvider.generateAccessToken(user);
         return new LoginResponse(newAccessToken, refreshToken, false);
@@ -100,16 +98,10 @@ public class AuthService {
     }
 
     private User updateExistingUser(User user, String kakaoAccessToken) {
-        validateNotWithdrawn(user);
+        user.assertActive();
         user.updateKakaoAccessToken(kakaoAccessToken);
         userRepository.save(user);
         return user;
-    }
-
-    private void validateNotWithdrawn(User user) {
-        if (Status.INACTIVE.equals(user.getStatus())) {
-            throw new CustomException(UserErrorCode.USER_WITHDRAWN);
-        }
     }
 
     private User createNewKakaoUser(Long kakaoId, String kakaoAccessToken) {

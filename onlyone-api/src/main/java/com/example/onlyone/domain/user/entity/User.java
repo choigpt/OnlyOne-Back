@@ -2,6 +2,8 @@ package com.example.onlyone.domain.user.entity;
 
 import com.example.onlyone.common.BaseTimeEntity;
 import com.example.onlyone.domain.user.converter.StringEncryptConverter;
+import com.example.onlyone.domain.user.exception.UserErrorCode;
+import com.example.onlyone.global.exception.CustomException;
 import jakarta.persistence.*;
 import jakarta.validation.constraints.NotNull;
 import lombok.*;
@@ -65,6 +67,12 @@ public class User extends BaseTimeEntity {
   private Role role = Role.ROLE_USER;
 
   // ========== 비즈니스 메서드 ==========
+
+  public void assertActive() {
+    if (Status.INACTIVE.equals(this.status)) {
+      throw new CustomException(UserErrorCode.USER_WITHDRAWN);
+    }
+  }
 
   public void updateProfile(ProfileUpdateCommand command) {
     this.city = command.city();

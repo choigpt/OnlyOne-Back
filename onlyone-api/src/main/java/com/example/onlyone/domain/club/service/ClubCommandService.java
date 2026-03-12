@@ -72,9 +72,7 @@ public class ClubCommandService {
         User user = userService.getCurrentUser();
         UserClub userClub = userClubRepository.findByUserAndClub(user, club)
                 .orElseThrow(() -> new CustomException(ClubErrorCode.USER_CLUB_NOT_FOUND));
-        if (userClub.getClubRole() != ClubRole.LEADER) {
-            throw new CustomException(ClubErrorCode.LEADER_ONLY_CLUB_MODIFY);
-        }
+        userClub.assertLeader();
         club.update(new ClubUpdateCommand(
                 requestDto.name(), requestDto.userLimit(), requestDto.description(),
                 requestDto.clubImage(), requestDto.city(), requestDto.district(), interest));
@@ -129,9 +127,7 @@ public class ClubCommandService {
 
     private void validateCapacity(Club club) {
         int userCount = userClubRepository.countByClub_ClubId(club.getClubId());
-        if (userCount >= club.getUserLimit()) {
-            throw new CustomException(ClubErrorCode.CLUB_NOT_ENTER);
-        }
+        club.validateCapacity(userCount);
     }
 
     private void validateNotAlreadyJoined(Long userId, Long clubId) {
@@ -141,12 +137,7 @@ public class ClubCommandService {
     }
 
     private void validateLeavePermission(UserClub userClub) {
-        if (userClub.getClubRole() == ClubRole.GUEST) {
-            throw new CustomException(ClubErrorCode.CLUB_NOT_LEAVE);
-        }
-        if (userClub.getClubRole() == ClubRole.LEADER) {
-            throw new CustomException(ClubErrorCode.CLUB_LEADER_NOT_LEAVE);
-        }
+        userClub.assertCanLeave();
     }
 
     private void saveUserClub(User user, Club club, ClubRole role) {

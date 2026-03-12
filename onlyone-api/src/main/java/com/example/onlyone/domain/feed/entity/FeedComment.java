@@ -1,7 +1,9 @@
 package com.example.onlyone.domain.feed.entity;
 
+import com.example.onlyone.domain.feed.exception.FeedErrorCode;
 import com.example.onlyone.domain.user.entity.User;
 import com.example.onlyone.common.BaseTimeEntity;
+import com.example.onlyone.global.exception.CustomException;
 import jakarta.persistence.*;
 import jakarta.validation.constraints.NotNull;
 import lombok.AccessLevel;
@@ -36,4 +38,15 @@ public class FeedComment extends BaseTimeEntity {
     @NotNull
     private User user;
 
+    public void assertBelongsToFeed(Long feedId) {
+        if (!this.feed.getFeedId().equals(feedId)) {
+            throw new CustomException(FeedErrorCode.FEED_NOT_FOUND);
+        }
+    }
+
+    public void assertDeletableBy(Long userId, Long feedOwnerId) {
+        if (!userId.equals(this.user.getUserId()) && !userId.equals(feedOwnerId)) {
+            throw new CustomException(FeedErrorCode.UNAUTHORIZED_COMMENT_ACCESS);
+        }
+    }
 }

@@ -1,7 +1,9 @@
 package com.example.onlyone.domain.settlement.entity;
 
+import com.example.onlyone.domain.finance.exception.FinanceErrorCode;
 import com.example.onlyone.domain.user.entity.User;
 import com.example.onlyone.common.BaseTimeEntity;
+import com.example.onlyone.global.exception.CustomException;
 import jakarta.persistence.*;
 import jakarta.validation.constraints.NotNull;
 import lombok.*;
@@ -54,7 +56,19 @@ public class Settlement extends BaseTimeEntity {
     @Builder.Default
     private List<UserSettlement> userSettlements = new ArrayList<>();
 
-    public void updateSum(Long sum) {
-        this.sum = sum;
+    public void assertNotCompleted() {
+        if (this.totalStatus == TotalStatus.COMPLETED) {
+            throw new CustomException(FinanceErrorCode.ALREADY_COMPLETED_SETTLEMENT);
+        }
+    }
+
+    public void assertReceiverIs(Long userId) {
+        if (!this.receiver.getUserId().equals(userId)) {
+            throw new CustomException(FinanceErrorCode.MEMBER_CANNOT_CREATE_SETTLEMENT);
+        }
+    }
+
+    public void applyTotalAmount(long userCount, long costPerUser) {
+        this.sum = userCount * costPerUser;
     }
 }

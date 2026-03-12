@@ -1,7 +1,9 @@
 package com.example.onlyone.domain.schedule.entity;
 
+import com.example.onlyone.domain.schedule.exception.ScheduleErrorCode;
 import com.example.onlyone.domain.user.entity.User;
 import com.example.onlyone.common.BaseTimeEntity;
+import com.example.onlyone.global.exception.CustomException;
 import jakarta.persistence.*;
 import jakarta.validation.constraints.NotNull;
 import lombok.*;
@@ -39,4 +41,15 @@ public class UserSchedule extends BaseTimeEntity {
     @Enumerated(EnumType.STRING)
     private ScheduleRole scheduleRole;
 
+    public void assertLeader() {
+        if (this.scheduleRole != ScheduleRole.LEADER) {
+            throw new CustomException(ScheduleErrorCode.MEMBER_CANNOT_MODIFY_SCHEDULE);
+        }
+    }
+
+    public void assertCanLeave() {
+        if (this.scheduleRole == ScheduleRole.LEADER) {
+            throw new CustomException(ScheduleErrorCode.LEADER_CANNOT_LEAVE_SCHEDULE);
+        }
+    }
 }

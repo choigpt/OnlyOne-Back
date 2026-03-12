@@ -93,22 +93,11 @@ public class ScheduleCommandService {
         UserSchedule userSchedule = userScheduleRepository.findByUserAndSchedule(user, schedule)
                 .orElseThrow(() -> new CustomException(ScheduleErrorCode.USER_SCHEDULE_NOT_FOUND));
 
-        if (userSchedule.getScheduleRole() != ScheduleRole.LEADER) {
-            throw new CustomException(ScheduleErrorCode.MEMBER_CANNOT_MODIFY_SCHEDULE);
-        }
+        userSchedule.assertLeader();
+        schedule.assertModifiable();
 
-        if (schedule.isNotModifiable()) {
-            throw new CustomException(ScheduleErrorCode.ALREADY_ENDED_SCHEDULE);
-        }
-
-        if (!schedule.getCost().equals(requestDto.cost())) {
-            int participantCount = userScheduleRepository.countBySchedule(schedule);
-            if (participantCount > 1) {
-                log.warn("참여자가 있는 일정의 비용 변경은 지원하지 않습니다. scheduleId={}, participants={}",
-                         scheduleId, participantCount);
-                throw new CustomException(ScheduleErrorCode.MEMBER_CANNOT_MODIFY_SCHEDULE);
-            }
-        }
+        int participantCount = userScheduleRepository.countBySchedule(schedule);
+        schedule.validateCostChange(requestDto.cost(), participantCount);
 
         schedule.update(requestDto.name(), requestDto.location(),
                 requestDto.cost(), requestDto.userLimit(), requestDto.scheduleTime());
@@ -123,13 +112,8 @@ public class ScheduleCommandService {
         User user = userService.getCurrentUser();
 
         int userCount = userScheduleRepository.countBySchedule(schedule);
-        if (userCount >= schedule.getUserLimit()) {
-            throw new CustomException(ScheduleErrorCode.ALREADY_EXCEEDED_SCHEDULE);
-        }
-
-        if (schedule.isNotModifiable()) {
-            throw new CustomException(ScheduleErrorCode.ALREADY_ENDED_SCHEDULE);
-        }
+        schedule.validateCapacity(userCount);
+        schedule.assertModifiable();
 
         if (!userClubRepository.existsByUser_UserIdAndClub_ClubId(user.getUserId(), clubId)) {
             throw new CustomException(ClubErrorCode.USER_CLUB_NOT_FOUND);
@@ -172,13 +156,8 @@ public class ScheduleCommandService {
             throw new CustomException(ScheduleErrorCode.SCHEDULE_NOT_FOUND);
         }
 
-        if (schedule.isNotModifiable()) {
-            throw new CustomException(ScheduleErrorCode.ALREADY_ENDED_SCHEDULE);
-        }
-
-        if (userSchedule.getScheduleRole() == ScheduleRole.LEADER) {
-            throw new CustomException(ScheduleErrorCode.LEADER_CANNOT_LEAVE_SCHEDULE);
-        }
+        schedule.assertModifiable();
+        userSchedule.assertCanLeave();
 
         walletHoldService.releaseOrThrow(user.getUserId(), schedule.getCost());
 

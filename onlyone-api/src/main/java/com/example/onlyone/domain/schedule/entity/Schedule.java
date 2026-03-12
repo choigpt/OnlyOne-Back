@@ -1,7 +1,9 @@
 package com.example.onlyone.domain.schedule.entity;
 
 import com.example.onlyone.domain.club.entity.Club;
+import com.example.onlyone.domain.schedule.exception.ScheduleErrorCode;
 import com.example.onlyone.common.BaseTimeEntity;
+import com.example.onlyone.global.exception.CustomException;
 import jakarta.persistence.*;
 import jakarta.validation.constraints.NotNull;
 import lombok.*;
@@ -66,6 +68,24 @@ public class Schedule extends BaseTimeEntity {
     public boolean isNotModifiable() {
         return this.scheduleStatus != ScheduleStatus.READY
                 || this.scheduleTime.isBefore(LocalDateTime.now());
+    }
+
+    public void assertModifiable() {
+        if (isNotModifiable()) {
+            throw new CustomException(ScheduleErrorCode.ALREADY_ENDED_SCHEDULE);
+        }
+    }
+
+    public void validateCostChange(Long newCost, long participantCount) {
+        if (!this.cost.equals(newCost) && participantCount > 1) {
+            throw new CustomException(ScheduleErrorCode.MEMBER_CANNOT_MODIFY_SCHEDULE);
+        }
+    }
+
+    public void validateCapacity(long currentCount) {
+        if (currentCount >= this.userLimit) {
+            throw new CustomException(ScheduleErrorCode.ALREADY_EXCEEDED_SCHEDULE);
+        }
     }
 
     public void update(String name, String location, Long cost, int userLimit, LocalDateTime scheduleTime) {

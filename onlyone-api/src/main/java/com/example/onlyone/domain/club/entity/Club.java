@@ -1,7 +1,9 @@
 package com.example.onlyone.domain.club.entity;
 
+import com.example.onlyone.domain.club.exception.ClubErrorCode;
 import com.example.onlyone.domain.interest.entity.Interest;
 import com.example.onlyone.common.BaseTimeEntity;
+import com.example.onlyone.global.exception.CustomException;
 import jakarta.persistence.*;
 import jakarta.validation.constraints.NotNull;
 import lombok.*;
@@ -59,6 +61,12 @@ public class Club extends BaseTimeEntity {
     @JoinColumn(name = "interest_id")
     @NotNull
     private Interest interest;
+
+    public void validateCapacity(long currentMemberCount) {
+        if (currentMemberCount >= this.userLimit) {
+            throw new CustomException(ClubErrorCode.CLUB_NOT_ENTER);
+        }
+    }
 
     public void update(ClubUpdateCommand cmd) {
         this.name = cmd.name();

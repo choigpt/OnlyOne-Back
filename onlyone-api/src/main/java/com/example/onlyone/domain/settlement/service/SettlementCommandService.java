@@ -4,7 +4,6 @@ import com.example.onlyone.common.event.SettlementCompletedEvent;
 import com.example.onlyone.domain.club.repository.ClubRepository;
 import com.example.onlyone.domain.settlement.entity.Settlement;
 import com.example.onlyone.domain.settlement.entity.SettlementStatus;
-import com.example.onlyone.domain.settlement.entity.TotalStatus;
 import com.example.onlyone.domain.settlement.repository.SettlementRepository;
 import com.example.onlyone.domain.settlement.repository.UserSettlementRepository;
 import com.example.onlyone.domain.club.exception.ClubErrorCode;
@@ -61,13 +60,8 @@ public class SettlementCommandService {
         Settlement settlement = settlementRepository.findByScheduleId(scheduleId)
                 .orElseThrow(() -> new CustomException(FinanceErrorCode.SETTLEMENT_NOT_FOUND));
 
-        if (!settlement.getReceiver().getUserId().equals(user.getUserId())) {
-            throw new CustomException(FinanceErrorCode.MEMBER_CANNOT_CREATE_SETTLEMENT);
-        }
-
-        if (settlement.getTotalStatus() == TotalStatus.COMPLETED) {
-            throw new CustomException(FinanceErrorCode.ALREADY_COMPLETED_SETTLEMENT);
-        }
+        settlement.assertReceiverIs(user.getUserId());
+        settlement.assertNotCompleted();
 
         Long settlementId = settlement.getSettlementId();
         int updated = settlementRepository.markProcessing(settlementId);
@@ -92,7 +86,7 @@ public class SettlementCommandService {
         }
 
         long totalAmount = userCount * costPerUser;
-        settlement.updateSum(totalAmount);
+        settlement.applyTotalAmount(userCount, costPerUser);
         settlementRepository.save(settlement);
 
         Long leaderWalletId = walletRepository.findWalletIdByUserId(user.getUserId());

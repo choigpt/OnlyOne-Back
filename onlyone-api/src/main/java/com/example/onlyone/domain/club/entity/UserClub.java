@@ -1,7 +1,9 @@
 package com.example.onlyone.domain.club.entity;
 
+import com.example.onlyone.domain.club.exception.ClubErrorCode;
 import com.example.onlyone.domain.user.entity.User;
 import com.example.onlyone.common.BaseTimeEntity;
+import com.example.onlyone.global.exception.CustomException;
 import jakarta.persistence.*;
 import jakarta.validation.constraints.NotNull;
 import lombok.*;
@@ -37,4 +39,19 @@ public class UserClub extends BaseTimeEntity  {
     @NotNull
     @Enumerated(EnumType.STRING)
     private ClubRole clubRole;
+
+    public void assertLeader() {
+        if (this.clubRole != ClubRole.LEADER) {
+            throw new CustomException(ClubErrorCode.LEADER_ONLY_CLUB_MODIFY);
+        }
+    }
+
+    public void assertCanLeave() {
+        if (this.clubRole == ClubRole.GUEST) {
+            throw new CustomException(ClubErrorCode.CLUB_NOT_LEAVE);
+        }
+        if (this.clubRole == ClubRole.LEADER) {
+            throw new CustomException(ClubErrorCode.CLUB_LEADER_NOT_LEAVE);
+        }
+    }
 }

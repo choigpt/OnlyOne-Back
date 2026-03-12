@@ -61,14 +61,10 @@ public class FeedCommentService {
         Feed feed = findFeedInClub(feedId, clubId);
         FeedComment feedComment = feedCommentRepository.findById(commentId)
                 .orElseThrow(() -> new CustomException(FeedErrorCode.COMMENT_NOT_FOUND));
-        if (!feedComment.getFeed().getFeedId().equals(feedId)) {
-            throw new CustomException(FeedErrorCode.FEED_NOT_FOUND);
-        }
+        feedComment.assertBelongsToFeed(feedId);
 
         Long userId = userService.getCurrentUserId();
-        if (!userId.equals(feedComment.getUser().getUserId()) && !userId.equals(feed.getUser().getUserId())) {
-            throw new CustomException(FeedErrorCode.UNAUTHORIZED_COMMENT_ACCESS);
-        }
+        feedComment.assertDeletableBy(userId, feed.getUser().getUserId());
 
         feedCommentRepository.delete(feedComment);
         eventPublisher.publishEvent(new CommentCountEvent(feedId, -1));
